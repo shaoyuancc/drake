@@ -62,6 +62,14 @@ class CspaceFreePolytope {
 
   ~CspaceFreePolytope() {}
 
+  /** Optional argument for constructing CspaceFreePolytope */
+  struct Options {
+    Options() {}
+    /** Refer to CollisionGeometry::polytope_chebyshev_radius_multiplier().
+     */
+    double polytope_chebyshev_radius_multiplier{1E-3};
+  };
+
   /**
    @param plant The plant for which we compute the C-space free polytopes. It
    must outlive this CspaceFreePolytope object.
@@ -74,7 +82,8 @@ class CspaceFreePolytope {
   CspaceFreePolytope(const multibody::MultibodyPlant<double>* plant,
                      const geometry::SceneGraph<double>* scene_graph,
                      SeparatingPlaneOrder plane_order,
-                     const Eigen::Ref<const Eigen::VectorXd>& q_star);
+                     const Eigen::Ref<const Eigen::VectorXd>& q_star,
+                     const Options& options = Options{});
 
   [[nodiscard]] const multibody::RationalForwardKinematics&
   rational_forward_kin() const {
@@ -230,6 +239,11 @@ class CspaceFreePolytope {
 
     // The solver options used for the SOS program.
     std::optional<solvers::SolverOptions> solver_options{std::nullopt};
+
+    // If a row in C*s<=d is redundant (this row is implied by other rows in
+    // C*s<=d, s_lower<=s<=s_upper), then we don't search for the Lagrangian
+    // multiplier for this row.
+    bool ignore_redundant_C{false};
   };
 
   /** Finds the certificates that the C-space polytope {s | C*s<=d, s_lower <= s
@@ -284,9 +298,15 @@ class CspaceFreePolytope {
     // We can constrain the C-space polytope {s | C*s<=d, s_lower<=s<=s_upper}
     // to contain some sampled s. Each column of s_inner_pts is a sample of s.
     std::optional<Eigen::MatrixXd> s_inner_pts;
+
+    // If set to true, then we will also search for the Lagrangian multipliers
+    // for the constraint s_lower <= s <= s_upper; otherwise we fix the
+    // Lagrangian multiplier to the solution found when we fix the C-space
+    // polytope {s | C*s<=d, s_lower<=s<=s_upper}.
+    bool search_s_bounds_lagrangians{true};
   };
 
-  struct BilinearAlternationResult {
+  struct SearchResult {
     Eigen::MatrixXd C;
     Eigen::VectorXd d;
     // a[i].dot(x) + b[i]=0 is the separation plane for separating_planes()[i].
@@ -294,6 +314,10 @@ class CspaceFreePolytope {
     std::unordered_map<int, symbolic::Polynomial> b;
     // The number of iterations at termination.
     int num_iter;
+
+    void SetSeparatingPlanes(
+        std::vector<std::optional<SeparationCertificateResult>>
+            certificates_result);
   };
 
   struct BilinearAlternationOptions {
@@ -320,12 +344,33 @@ class CspaceFreePolytope {
    @retval result If we successfully find a collision-free C-space polytope,
    then `result` contains the search result; otherwise result = std::nullopt.
    */
-  [[nodiscard]] std::optional<BilinearAlternationResult>
+  [[nodiscard]] std::optional<SearchResult>
   SearchWithBilinearAlternation(
       const IgnoredCollisionPairs& ignored_collision_pairs,
       const Eigen::Ref<const Eigen::MatrixXd>& C_init,
       const Eigen::Ref<const Eigen::VectorXd>& d_init, bool search_margin,
       const BilinearAlternationOptions& options) const;
+
+  struct BinarySearchOptions {
+    double scale_max{1};
+    double scale_min{0.01};
+    int max_iter{10};
+    double convergence_tol{1E-3};
+    FindSeparationCertificateGivenPolytopeOptions find_lagrangian_options;
+  };
+
+  /** Binary search on d such that the C-space polytope {s | C*s<=d,
+   s_lower<=s<=s_upper} is collision free.
+   We scale the polytope {s | C*s<=d_init} about its center `s_center` and
+   search the scaling factor.
+   @pre s_center is in the polytope {s | C*s<=d_init, s_lower<=s<=s_upper}
+   */
+  [[nodiscard]] std::optional<SearchResult> BinarySearch(
+      const IgnoredCollisionPairs& ignored_collision_pairs,
+      const Eigen::Ref<const Eigen::MatrixXd>& C,
+      const Eigen::Ref<const Eigen::VectorXd>& d_init,
+      const Eigen::Ref<const Eigen::VectorXd>& s_center,
+      const BinarySearchOptions& options) const;
 
  private:
   // Forward declaration the tester class. This tester class will expose the
@@ -460,7 +505,8 @@ class CspaceFreePolytope {
   matrices in the SOS program.
   */
   [[nodiscard]] int GetGramVarSizeForPolytopeSearchProgram(
-      const IgnoredCollisionPairs& ignored_collision_pairs) const;
+      const IgnoredCollisionPairs& ignored_collision_pairs,
+      bool search_s_bounds_lagrangians) const;
 
   /**
    Constructs a program to search for the C-space polytope {s | C*s<=d,
@@ -470,6 +516,8 @@ class CspaceFreePolytope {
    Note that this program doesn't contain any cost yet.
    @param certificates_vec The return of
    FindSeparationCertificateGivenPolytope().
+   @param search_s_bounds_lagrangians Set to true if we search for the
+   Lagrangian multiplier for the bounds s_lower <=s<=s_upper.
    @param gram_total_size The return of
    GetGramVarSizeForPolytopeSearchProgram().
    */
@@ -481,7 +529,7 @@ class CspaceFreePolytope {
       const VectorX<symbolic::Polynomial>& d_minus_Cs,
       const std::vector<std::optional<SeparationCertificateResult>>&
           certificates_vec,
-      int gram_total_size) const;
+      bool search_s_bounds_lagrangians, int gram_total_size) const;
 
   /** Adds the constraint that the ellipsoid {Q*u+s₀ | uᵀu≤1} is inside the
      polytope {s | C*s <= d} with margin δ. Namely for the i'th face cᵢᵀs≤dᵢ, we

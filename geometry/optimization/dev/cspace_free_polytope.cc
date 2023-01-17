@@ -286,13 +286,19 @@ CspaceFreePolytope::CspaceFreePolytope(
     const multibody::MultibodyPlant<double>* plant,
     const geometry::SceneGraph<double>* scene_graph,
     SeparatingPlaneOrder plane_order,
-    const Eigen::Ref<const Eigen::VectorXd>& q_star)
+    const Eigen::Ref<const Eigen::VectorXd>& q_star, const Options& options)
     : rational_forward_kin_(plant),
       scene_graph_{*scene_graph},
       link_geometries_{GetCollisionGeometries(*plant, *scene_graph)},
       plane_order_{plane_order},
       s_set_{rational_forward_kin_.s()},
       q_star_{q_star} {
+  for (const auto& [body, geometries] : link_geometries_) {
+    for (auto& geometry : geometries) {
+      geometry->set_polytope_chebyshev_radius_multiplier(
+          options.polytope_chebyshev_radius_multiplier);
+    }
+  }
   // Create separating planes.
   // collision_pairs maps each pair of body to the pair of collision geometries
   // on that pair of body.
@@ -815,6 +821,9 @@ CspaceFreePolytope::FindSeparationCertificateGivenPolytope(
   this->FindRedundantInequalities(
       C, d, this->s_lower_, this->s_upper_, 0., &C_redundant_indices,
       &s_lower_redundant_indices, &s_upper_redundant_indices);
+  if (!options.ignore_redundant_C) {
+    C_redundant_indices.clear();
+  }
 
   // Stores the indices in separating_planes_ that don't appear in
   // ignored_collision_pairs.
@@ -989,21 +998,23 @@ bool CspaceFreePolytope::FindSeparationCertificateGivenPolytope(
 }
 
 int CspaceFreePolytope::GetGramVarSizeForPolytopeSearchProgram(
-    const CspaceFreePolytope::IgnoredCollisionPairs& ignored_collision_pairs)
-    const {
+    const CspaceFreePolytope::IgnoredCollisionPairs& ignored_collision_pairs,
+    bool search_s_bounds_lagrangians) const {
   int ret = 0;
 
-  auto count_gram_per_plane_side = [this, &ret](
+  auto count_gram_per_plane_side = [this, search_s_bounds_lagrangians, &ret](
                                        int num_rationals,
                                        multibody::BodyIndex expressed_body,
                                        multibody::BodyIndex collision_body) {
     const auto& monomial_basis = this->map_body_to_monomial_basis_.at(
         SortedPair<multibody::BodyIndex>(expressed_body, collision_body));
     // Each rational will add Lagrangian multipliers for s-s_lower and
-    // s_upper-s, together with one sos that rational.numerator() - λ(s)ᵀ * (d -
-    // C*s) - λ_lower(s)ᵀ * (s - s_lower) -λ_upper(s)ᵀ * (s_upper - s) is sos
+    // s_upper-s (if search_s_bounds_lagrangian=true), together with one sos
+    // that rational.numerator() - λ(s)ᵀ * (d - C*s) - λ_lower(s)ᵀ * (s -
+    // s_lower) -λ_upper(s)ᵀ * (s_upper - s) is sos
     const int s_size = this->rational_forward_kin_.s().rows();
-    const int num_sos = num_rationals * (1 + 2 * s_size);
+    const int num_sos =
+        num_rationals * (1 + (search_s_bounds_lagrangians ? 2 * s_size : 0));
     ret += num_sos * (monomial_basis.rows() + 1) * monomial_basis.rows() / 2;
   };
   for (const auto& plane_geometries : plane_geometries_wo_margin_) {
@@ -1029,7 +1040,7 @@ CspaceFreePolytope::InitializePolytopeSearchProgram(
     const VectorX<symbolic::Polynomial>& d_minus_Cs,
     const std::vector<std::optional<SeparationCertificateResult>>&
         certificates_vec,
-    int gram_total_size) const {
+    bool search_s_bounds_lagrangians, int gram_total_size) const {
   auto prog = std::make_unique<solvers::MathematicalProgram>();
   prog->AddIndeterminates(rational_forward_kin_.s());
   // Add the indeterminates y if we need to impose unit length constraint.
@@ -1060,7 +1071,8 @@ CspaceFreePolytope::InitializePolytopeSearchProgram(
   VectorX<symbolic::Polynomial> s_lower_lagrangians(s_size);
   // Add the sos constraints for each pair of geometries.
   auto add_sos = [this, &prog, &d_minus_Cs, &gram_vars, &gram_var_count,
-                  &s_upper_lagrangians, &s_lower_lagrangians](
+                  &s_upper_lagrangians, &s_lower_lagrangians,
+                  search_s_bounds_lagrangians](
                      const std::vector<symbolic::RationalFunction>& rationals,
                      int plane_index, multibody::BodyIndex collision_body,
                      const std::vector<SeparatingPlaneLagrangians>&
@@ -1074,17 +1086,22 @@ CspaceFreePolytope::InitializePolytopeSearchProgram(
         (monomial_basis.rows() + 1) * monomial_basis.rows() / 2;
     MatrixX<symbolic::Variable> gram_mat(monomial_basis.rows(),
                                          monomial_basis.rows());
-    // Add Lagrangians for joint limits.
     for (int i = 0; i < static_cast<int>(rationals.size()); ++i) {
-      for (int j = 0; j < this->rational_forward_kin_.s().rows(); ++j) {
-        AddSosPolynomial(prog.get(), monomial_basis,
-                         gram_vars.segment(gram_var_count, gram_lower_size),
-                         &(s_lower_lagrangians(j)), &gram_mat);
-        gram_var_count += gram_lower_size;
-        AddSosPolynomial(prog.get(), monomial_basis,
-                         gram_vars.segment(gram_var_count, gram_lower_size),
-                         &(s_upper_lagrangians(j)), &gram_mat);
-        gram_var_count += gram_lower_size;
+      // Add Lagrangian multipliers for joint limits.
+      if (search_s_bounds_lagrangians) {
+        for (int j = 0; j < this->rational_forward_kin_.s().rows(); ++j) {
+          AddSosPolynomial(prog.get(), monomial_basis,
+                           gram_vars.segment(gram_var_count, gram_lower_size),
+                           &(s_lower_lagrangians(j)), &gram_mat);
+          gram_var_count += gram_lower_size;
+          AddSosPolynomial(prog.get(), monomial_basis,
+                           gram_vars.segment(gram_var_count, gram_lower_size),
+                           &(s_upper_lagrangians(j)), &gram_mat);
+          gram_var_count += gram_lower_size;
+        }
+      } else {
+        s_lower_lagrangians = plane_side_lagrangians[i].s_lower;
+        s_upper_lagrangians = plane_side_lagrangians[i].s_upper;
       }
       const symbolic::Polynomial poly =
           rationals[i].numerator() -
@@ -1230,7 +1247,7 @@ CspaceFreePolytope::FindPolytopeGivenLagrangian(
     const FindPolytopeGivenLagrangianOptions& options) const {
   auto prog = this->InitializePolytopeSearchProgram(
       ignored_collision_pairs, C, d, d_minus_Cs, certificates_vec,
-      gram_total_size);
+      options.search_s_bounds_lagrangians, gram_total_size);
   prog->AddDecisionVariables(ellipsoid_margins);
   AddEllipsoidContainmentConstraint(prog.get(), Q, s0, C, d, ellipsoid_margins);
   // We know that the verified polytope has to be contained in the box s_lower
@@ -1307,7 +1324,18 @@ HPolyhedron CspaceFreePolytope::GetPolyhedronWithJointLimits(
   return HPolyhedron(A, b);
 }
 
-std::optional<CspaceFreePolytope::BilinearAlternationResult>
+void CspaceFreePolytope::SearchResult::SetSeparatingPlanes(
+    std::vector<std::optional<SeparationCertificateResult>>
+        certificates_result) {
+  a.clear();
+  b.clear();
+  for (const auto& certificate : certificates_result) {
+    a.emplace(certificate->plane_index, std::move(certificate->a));
+    b.emplace(certificate->plane_index, std::move(certificate->b));
+  }
+}
+
+std::optional<CspaceFreePolytope::SearchResult>
 CspaceFreePolytope::SearchWithBilinearAlternation(
     const IgnoredCollisionPairs& ignored_collision_pairs,
     const Eigen::Ref<const Eigen::MatrixXd>& C_init,
@@ -1315,7 +1343,7 @@ CspaceFreePolytope::SearchWithBilinearAlternation(
     const BilinearAlternationOptions& options) const {
   DRAKE_DEMAND(C_init.rows() == d_init.rows());
   DRAKE_DEMAND(C_init.cols() == this->rational_forward_kin_.s().rows());
-  std::optional<CspaceFreePolytope::BilinearAlternationResult> ret{
+  std::optional<CspaceFreePolytope::SearchResult> ret{
       std::nullopt};
   int iter = 0;
   // When we search for the C-space polytope {s |C*s<=d, s_lower<=s<=s_upper},
@@ -1344,7 +1372,9 @@ CspaceFreePolytope::SearchWithBilinearAlternation(
   const VectorX<symbolic::Polynomial> d_minus_Cs =
       this->CalcDminusCs<symbolic::Variable>(C_var, d_var);
   const int gram_total_size_in_polytope_program =
-      this->GetGramVarSizeForPolytopeSearchProgram(ignored_collision_pairs);
+      this->GetGramVarSizeForPolytopeSearchProgram(
+          ignored_collision_pairs,
+          options.find_polytope_options.search_s_bounds_lagrangians);
   // Find the inscribed ellipsoid.
   HPolyhedron cspace_polytope =
       this->GetPolyhedronWithJointLimits(C_init, d_init);
@@ -1374,10 +1404,7 @@ CspaceFreePolytope::SearchWithBilinearAlternation(
       // Copy the result to ret.
       ret->C = C;
       ret->d = d;
-      for (const auto& certificate : certificates_result) {
-        ret->a.emplace(certificate->plane_index, std::move(certificate->a));
-        ret->b.emplace(certificate->plane_index, std::move(certificate->b));
-      }
+      ret->SetSeparatingPlanes(certificates_result);
     }
     // Now fix the Lagrangian and search for C-space polytope and separating
     // planes.
@@ -1394,23 +1421,7 @@ CspaceFreePolytope::SearchWithBilinearAlternation(
       ret->b = std::move(polytope_result->b);
       ret->num_iter = iter;
       // Now find the inscribed ellipsoid.
-      // If a row of C is 0-vector, then our current code in HPolyhedron will
-      // cause an error. Hence we prune the 0-vector rows.
-      // TODO(hongkai.dai): fix HPolyhedron so that we don't need to prune the
-      // C, d matrices here.
-      Eigen::MatrixXd C_prune = ret->C;
-      Eigen::VectorXd d_prune = ret->d;
-      int C_prune_rows = 0;
-      for (int i = 0; i < ret->C.rows(); ++i) {
-        if ((ret->C.row(i).array() != 0).any()) {
-          C_prune.row(C_prune_rows) = ret->C.row(i);
-          d_prune(C_prune_rows) = ret->d(i);
-          ++C_prune_rows;
-        }
-      }
-      C_prune.conservativeResize(C_prune_rows, C_prune.cols());
-      d_prune.conservativeResize(C_prune_rows, 1);
-      cspace_polytope = this->GetPolyhedronWithJointLimits(C_prune, d_prune);
+      cspace_polytope = this->GetPolyhedronWithJointLimits(ret->C, ret->d);
       ellipsoid = cspace_polytope.MaximumVolumeInscribedEllipsoid();
       ellipsoid_Q = ellipsoid.A().inverse();
       const double cost = ellipsoid_Q.determinant();
@@ -1428,6 +1439,86 @@ CspaceFreePolytope::SearchWithBilinearAlternation(
     }
     ++iter;
   }
+  return ret;
+}
+
+std::optional<CspaceFreePolytope::SearchResult>
+CspaceFreePolytope::BinarySearch(
+    const IgnoredCollisionPairs& ignored_collision_pairs,
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d_init,
+    const Eigen::Ref<const Eigen::VectorXd>& s_center,
+    const BinarySearchOptions& options) const {
+  DRAKE_DEMAND(options.scale_max >= options.scale_min &&
+               options.scale_min >= 0);
+  DRAKE_DEMAND(((C * s_center).array() <= d_init.array()).all());
+  DRAKE_DEMAND((s_center.array() >= s_lower_.array()).all());
+  DRAKE_DEMAND((s_center.array() <= s_upper_.array()).all());
+  CspaceFreePolytope::SearchResult ret;
+
+  const Eigen::ArrayXd C_row_norm = C.rowwise().norm().array();
+  if ((C_row_norm == 0).any()) {
+    throw std::runtime_error(
+        "C contains rows with all 0 entries. Please remove these rows.");
+  }
+
+  // Determines if we can certify the scaled C-space polytope {s |C*s<=d,
+  // s_lower<=s<=s_upper} is collision free or not. Also update `ret` if eps is
+  // feasible.
+  auto is_scale_feasible = [this, &ignored_collision_pairs, &C, &d_init,
+                            &s_center, &options, &ret](double scale) {
+    // (d - C*s_center) / |C| = scale * (d_init - C*s_center) / |C|, hence d =
+    // scale * d_init + (1-scale) * C * s_center.
+    const Eigen::VectorXd d = scale * d_init + (1 - scale) * C * s_center;
+    const auto certificates_result =
+        this->FindSeparationCertificateGivenPolytope(
+            ignored_collision_pairs, C, d, false /* search_separating_margin */,
+            options.find_lagrangian_options);
+    if (std::any_of(
+            certificates_result.begin(), certificates_result.end(),
+            [](const std::optional<SeparationCertificateResult>& certificate) {
+              return !certificate.has_value();
+            })) {
+      return false;
+    } else {
+      ret.C = C;
+      ret.d = d;
+      ret.SetSeparatingPlanes(std::move(certificates_result));
+      return true;
+    }
+  };
+
+  if (!is_scale_feasible(options.scale_min)) {
+    drake::log()->error(
+        "CspaceFreePolytope::BinarySearch(): scale_min={} is infeasible.",
+        options.scale_min);
+    return std::nullopt;
+  }
+  if (is_scale_feasible(options.scale_max)) {
+    drake::log()->error(
+        "CspaceFreePolytope::BinarySearch(): scale_max={} is feasible.",
+        options.scale_max);
+    ret.num_iter = 0;
+    return ret;
+  }
+  double scale_min = options.scale_min;
+  double scale_max = options.scale_max;
+  int iter = 0;
+  while (scale_max - scale_min > options.convergence_tol &&
+         iter < options.max_iter) {
+    const double scale = (scale_max + scale_min) / 2;
+    if (is_scale_feasible(scale)) {
+      drake::log()->info(
+          "CspaceFreePolytope::BinarySearch(): scale={} is feasible", scale);
+      scale_min = scale;
+    } else {
+      drake::log()->info(
+          "CspaceFreePolytope::BinarySearch(): scale={} is infeasible", scale);
+      scale_max = scale;
+    }
+    ++iter;
+  }
+  ret.num_iter = iter;
   return ret;
 }
 

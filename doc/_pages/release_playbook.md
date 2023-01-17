@@ -67,11 +67,10 @@ the main body of the document:
   not the "Multibody" heading.
 * Expand all acronyms (eg, MBP -> MultibodyPlant, SG -> SceneGraph).
 * Commits can be omitted if they only affect tests or non-installed examples. {% comment %}TODO(jwnimmer-tri) Explain how to check if something is installed.{% endcomment %}
-* In general you should mention new bindings and deprecated/removed classes and
-  methods using their exact name (for easier searching).
-   * In the pydrake and deprecation sections in fact you can just put the
-    fully-qualified name as the whole line item; the meaning is clear from
-    context.
+* In general you should mention deprecated/removed classes and methods using
+  their exact name (for easier searching).
+  * In the deprecation section you can provide the fully-qualified name as the
+    whole line item; the meaning is clear from context.
   * This may mean having a long list of items for a single commit.  That is
     fine.
 
@@ -159,7 +158,7 @@ the main body of the document:
       [download_release_candidate.py](https://github.com/RobotLocomotion/drake/blob/master/tools/release_engineering/download_release_candidate.py).)
 6. Merge the release notes PR
    1. Take care when squashing not to accept github's auto-generated commit message if it is not appropriate.
-   2. After merge, go to <https://drake-jenkins.csail.mit.edu/view/Documentation/job/linux-focal-unprovisioned-gcc-bazel-nightly-documentation/> and push "Build now".
+   2. After merge, go to <https://drake-jenkins.csail.mit.edu/view/Documentation/job/linux-jammy-unprovisioned-gcc-bazel-nightly-documentation/> and push "Build now".
       * If you don't have "Build now" click "Log in" first in upper right.
 7. Open <https://github.com/RobotLocomotion/drake/releases> and choose "Draft
    a new release".  Note that this page does has neither history nor undo.  Be
