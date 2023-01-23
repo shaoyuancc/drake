@@ -18,7 +18,7 @@
        dmd.yaml file (or more likely, inline string) that postures the weld as
        part of the example program itself.
   -->
-  <model name="sphere_manipulator">
+  <model name="block_manipulator">
     <!-- Pose X_WG of the gripper model frame G in the world frame W. -->
     <pose>0.0 0.0 0.25 -1.57 0 1.57</pose>
     <joint name="weld_base" type="fixed">
@@ -53,21 +53,21 @@
     <link name="body">
       <pose>0 0 0 0 0 0</pose>
       <inertial>
-        <mass>1</mass>
+        <mass>0.988882</mass>
         <inertia>
-          <ixx>0.001</ixx>
+          <ixx>0.162992</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.001</iyy>
+          <iyy>0.162992</iyy>
           <iyz>0</iyz>
-          <izz>0.001</izz>
+          <izz>0.164814</izz>
         </inertia>
       </inertial>
       <visual name="visual">
         <geometry>
-          <sphere>
-            <radius>0.05</radius>
-          </sphere>
+          <box>
+            <size>0.146 0.0725 0.049521</size>
+          </box>
         </geometry>
         <material>
           <diffuse>0.3 0.3 0.3 0.9</diffuse>

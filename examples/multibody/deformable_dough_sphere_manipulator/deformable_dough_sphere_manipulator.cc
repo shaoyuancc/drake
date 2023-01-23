@@ -19,6 +19,7 @@
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
 
+DEFINE_bool(should_raise, false, "Whether the manipulator should raise itself after compressing the object.");
 DEFINE_double(simulation_time, 1.5, "Desired duration of the simulation [s].");
 DEFINE_double(realtime_rate, 1.0, "Desired real time rate.");
 DEFINE_double(time_step, 1e-2,
@@ -112,14 +113,17 @@ class GripperPositionControl : public systems::LeafSystem<double> {
         const double theta = t / end_time;
         desired_positions =
             theta * final_state_ + (1.0 - theta) * initial_state_;
-    } else if (t < ascend_time_) {
+    } else if (FLAGS_should_raise && t < ascend_time_) {
         const double end_time = ascend_time_ - descend_time_;
         const double theta = (t - descend_time_) / end_time;
         desired_positions =
             theta * initial_state_ + (1.0 - theta) * final_state_;
     }
-    else {
+    else if (FLAGS_should_raise) {
       desired_positions = initial_state_;
+    }
+    else {
+      desired_positions = final_state_;
     }
     const Vector1d force = kp_ * (desired_positions - measured_positions) +
                            kd_ * (desired_velocities - measured_velocities);
@@ -247,7 +251,7 @@ int do_main() {
   /* Set the width between the fingers for open and closed states as well as the
    height to which the gripper lifts the deformable torus. */
   const double initial_height = 0.0; //0.18;
-  const double final_height = -0.1; //0.18;
+  const double final_height = -0.14; //0.18;
 
   const auto& control = *builder.AddSystem<GripperPositionControl>(
       initial_height, final_height);
