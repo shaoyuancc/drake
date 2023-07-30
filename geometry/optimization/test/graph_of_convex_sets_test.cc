@@ -2198,6 +2198,291 @@ GTEST_TEST(ShortestPathTest, Graphviz) {
               AllOf(HasSubstr("x = [1 2]"), HasSubstr("x = [1e-05]")));
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
+GTEST_TEST(GraphOfConvexSetsTest, DeprecatedAddEdge) {
+  GraphOfConvexSets g;
+  Point pu(Vector3d(1.0, 2.0, 3.0));
+  Point pv(Vector2d(4., 5.));
+  Vertex* u = g.AddVertex(pu, "u");
+  Vertex* v = g.AddVertex(pv, "v");
+  Edge* e = g.AddEdge(u->id(), v->id(), "e");
+
+  EXPECT_EQ(e->u().name(), u->name());
+  EXPECT_EQ(e->v().name(), v->name());
+
+  EXPECT_EQ(Variables(e->xu()), Variables(u->x()));
+  EXPECT_EQ(Variables(e->xv()), Variables(v->x()));
+
+  auto edges = g.Edges();
+  EXPECT_EQ(edges.size(), 1);
+  EXPECT_EQ(edges.at(0), e);
+
+  const GraphOfConvexSets* const_g = &g;
+  const auto const_edges = const_g->Edges();
+  EXPECT_EQ(const_edges.size(), 1);
+  EXPECT_EQ(const_edges.at(0), e);
+}
+
+GTEST_TEST(GraphOfConvexSetsTest, DeprecatedRemoveEdge) {
+  GraphOfConvexSets g;
+  Point pu(Vector3d(1.0, 2.0, 3.0));
+  Point pv(Vector2d(4., 5.));
+  Vertex* u = g.AddVertex(pu, "u");
+  Vertex* v = g.AddVertex(pv, "v");
+  Edge* e1 = g.AddEdge(u, v, "e1");
+  Edge* e2 = g.AddEdge(v, u, "e2");
+
+  EXPECT_EQ(g.Edges().size(), 2);
+
+  EXPECT_EQ(u->incoming_edges().size(), 1);
+  EXPECT_EQ(u->incoming_edges()[0], e2);
+  EXPECT_EQ(u->outgoing_edges().size(), 1);
+  EXPECT_EQ(u->outgoing_edges()[0], e1);
+  EXPECT_EQ(v->incoming_edges().size(), 1);
+  EXPECT_EQ(v->incoming_edges()[0], e1);
+  EXPECT_EQ(v->outgoing_edges().size(), 1);
+  EXPECT_EQ(v->outgoing_edges()[0], e2);
+
+  g.RemoveEdge(e1->id());
+  auto edges = g.Edges();
+  EXPECT_EQ(edges.size(), 1);
+  EXPECT_EQ(edges.at(0), e2);
+  EXPECT_EQ(u->incoming_edges().size(), 1);
+  EXPECT_EQ(u->incoming_edges()[0], e2);
+  EXPECT_EQ(u->outgoing_edges().size(), 0);
+  EXPECT_EQ(v->incoming_edges().size(), 0);
+  EXPECT_EQ(v->outgoing_edges().size(), 1);
+  EXPECT_EQ(v->outgoing_edges()[0], e2);
+
+  g.RemoveEdge(e2);
+  EXPECT_EQ(g.Edges().size(), 0);
+  EXPECT_EQ(u->incoming_edges().size(), 0);
+  EXPECT_EQ(u->outgoing_edges().size(), 0);
+  EXPECT_EQ(v->incoming_edges().size(), 0);
+  EXPECT_EQ(v->outgoing_edges().size(), 0);
+}
+
+GTEST_TEST(GraphOfConvexSetsTest, DeprecatedRemoveVertex) {
+  GraphOfConvexSets g;
+  Vertex* v1 = g.AddVertex(Point(Vector2d(3., 5.)));
+  Vertex* v2 = g.AddVertex(Point(Vector2d(-2., 4.)));
+  Vertex* v3 = g.AddVertex(Point(Vector2d(5., -2.3)));
+  Edge* e1 = g.AddEdge(v1, v2);
+  g.AddEdge(v1, v3);
+  g.AddEdge(v3, v1);
+
+  EXPECT_EQ(g.Vertices().size(), 3);
+  EXPECT_EQ(g.Edges().size(), 3);
+
+  g.RemoveVertex(v3->id());
+  EXPECT_EQ(g.Vertices().size(), 2);
+  auto edges = g.Edges();
+  EXPECT_EQ(edges.size(), 1);
+  EXPECT_EQ(edges.at(0), e1);
+
+  g.RemoveVertex(v2);
+  auto vertices = g.Vertices();
+  EXPECT_EQ(vertices.size(), 1);
+  EXPECT_EQ(vertices.at(0), v1);
+  EXPECT_EQ(g.Edges().size(), 0);
+}
+
+TEST_F(ThreePoints, DeprecatedLinearCost1) {
+  e_on_->AddCost(1.0);
+  e_off_->AddCost(1.0);
+  source_->AddCost(1.0);
+  auto result = g_.SolveShortestPath(source_->id(), target_->id(), options_);
+  ASSERT_TRUE(result.is_success());
+  EXPECT_NEAR(e_on_->GetSolutionCost(result), 1.0, 1e-6);
+  EXPECT_NEAR(e_off_->GetSolutionCost(result), 0.0, 1e-6);
+  EXPECT_NEAR(source_->GetSolutionCost(result), 1.0, 1e-6);
+  EXPECT_NEAR(target_->GetSolutionCost(result), 0.0, 1e-6);
+  EXPECT_NEAR(sink_->GetSolutionCost(result), 0.0, 1e-6);
+
+  EXPECT_TRUE(
+      CompareMatrices(e_on_->GetSolutionPhiXu(result), p_source_.x(), 1e-6));
+  EXPECT_TRUE(
+      CompareMatrices(e_on_->GetSolutionPhiXv(result), p_target_.x(), 1e-6));
+  EXPECT_TRUE(CompareMatrices(e_off_->GetSolutionPhiXu(result),
+                              0 * p_source_.x(), 1e-6));
+  EXPECT_TRUE(
+      CompareMatrices(e_off_->GetSolutionPhiXv(result), 0 * p_sink_.x(), 1e-6));
+  CheckConvexRestriction(result);
+
+  // Alternative signatures.
+  auto result2 = g_.SolveShortestPath(*source_, *target_, options_);
+  ASSERT_TRUE(result2.is_success());
+  EXPECT_NEAR(e_on_->GetSolutionCost(result2), 1.0, 1e-6);
+  EXPECT_NEAR(e_off_->GetSolutionCost(result2), 0.0, 1e-6);
+  EXPECT_NEAR(source_->GetSolutionCost(result2), 1.0, 1e-6);
+  EXPECT_NEAR(target_->GetSolutionCost(result2), 0.0, 1e-6);
+  EXPECT_NEAR(sink_->GetSolutionCost(result2), 0.0, 1e-6);
+
+  options_.solver_options = SolverOptions();
+  auto result4 = g_.SolveShortestPath(*source_, *target_, options_);
+  ASSERT_TRUE(result4.is_success());
+  EXPECT_NEAR(e_on_->GetSolutionCost(result4), 1.0, 1e-6);
+  EXPECT_NEAR(e_off_->GetSolutionCost(result4), 0.0, 1e-6);
+  EXPECT_NEAR(source_->GetSolutionCost(result4), 1.0, 1e-6);
+  EXPECT_NEAR(target_->GetSolutionCost(result4), 0.0, 1e-6);
+  EXPECT_NEAR(sink_->GetSolutionCost(result4), 0.0, 1e-6);
+
+  EXPECT_TRUE(
+      CompareMatrices(source_->GetSolution(result4), p_source_.x(), 1e-6));
+  EXPECT_TRUE(
+      CompareMatrices(target_->GetSolution(result4), p_target_.x(), 1e-6));
+  EXPECT_TRUE(sink_->GetSolution(result4).hasNaN());
+
+  if (solvers::ClpSolver::is_available()) {
+    solvers::ClpSolver clp;
+    options_.solver = &clp;
+    auto result3 = g_.SolveShortestPath(*source_, *target_, options_);
+    ASSERT_TRUE(result3.is_success());
+    EXPECT_NEAR(e_on_->GetSolutionCost(result3), 1.0, 1e-6);
+    EXPECT_NEAR(e_off_->GetSolutionCost(result3), 0.0, 1e-6);
+    EXPECT_NEAR(source_->GetSolutionCost(result3), 1.0, 1e-6);
+    EXPECT_NEAR(target_->GetSolutionCost(result3), 0.0, 1e-6);
+    EXPECT_NEAR(sink_->GetSolutionCost(result3), 0.0, 1e-6);
+  }
+}
+
+/* A graph where the first half is higher dimensional, and the second half
+is factored (lower dimensional)
+
+                                      ┌────┐
+                                  ┌──►│ p3 ├────┐
+                                  │   └────┘    │
+          ┌────┐               ┌──┴─┐        ┌──▼─────┐
+     ┌───►│ p1 ├─────┐    ┌───►│ p2 ├───────►│target_a│
+     │    └────┘     │    │    └────┘        └────────┘
+ ┌───┴──┐       ┌────▼────┴┐          ┌────┐
+ │source├──────►│transition│      ┌──►│ p5 ├────┐
+ └──────┘       └─────────┬┘      │   └────┘    │
+                          │    ┌──┴─┐        ┌──▼─────┐
+                          └───►│ p4 ├───────►│target_b│
+                               └────┘        └────────┘
+
+│        dim 4             │ │         dim 2           │
+└──────────────────────────┘ └─────────────────────────┘
+*/
+class PointsFactored : public ::testing::Test{
+  protected:
+    PointsFactored()
+      : p_source_{Vector4d(0., 0., 0., 1.)},
+        p_p1_{Vector4d(1., 1., 1., 2.)},
+        p_transition_{Vector4d(2., 0., 2., 1.)},
+        p_p2_{Vector2d(3., 1.)},
+        p_p3_{Vector2d(4., 2.)},
+        p_target_a_{Vector2d(5., 1.)},
+        p_p4_{Vector2d(3., -1.)},
+        p_p5_{Vector2d(4., 0.)},
+        p_target_b_{Vector2d(5., -1.)} {
+    // Add Vertices
+    source_ = g_.AddVertex(p_source_);
+    p1_ = g_.AddVertex(p_p1_);
+    transition_ = g_.AddVertex(p_transition_);
+    p2_ = g_.AddVertex(p_p2_);
+    p3_ = g_.AddVertex(p_p3_);
+    target_a_ = g_.AddVertex(p_target_a_);
+    p4_ = g_.AddVertex(p_p4_);
+    p5_ = g_.AddVertex(p_p5_);
+    target_b_ = g_.AddVertex(p_target_b_);
+    // Add Edges
+    e_source_p1_ = g_.AddEdge(source_, p1_);
+    e_p1_transition_ = g_.AddEdge(p1_, transition_);
+    e_source_transition_ = g_.AddEdge(source_, transition_);
+    e_transition_p2_ = g_.AddEdge(transition_, p2_);
+    e_transition_p4_ = g_.AddEdge(transition_, p4_);
+    e_p2_p3_ = g_.AddEdge(p2_, p3_);
+    e_p2_target_a_ = g_.AddEdge(p2_, target_a_);
+    e_p3_target_a_ = g_.AddEdge(p3_, target_a_);
+    e_p4_p5_ = g_.AddEdge(p4_, p5_);
+    e_p4_target_b_ = g_.AddEdge(p4_, target_b_);
+    e_p5_target_b_ = g_.AddEdge(p5_, target_b_);
+  }
+
+  GraphOfConvexSets g_;
+  Point p_source_;
+  Point p_p1_;
+  Point p_transition_;
+  Point p_p2_;
+  Point p_p3_;
+  Point p_target_a_;
+  Point p_p4_;
+  Point p_p5_;
+  Point p_target_b_;
+  Vertex* source_{nullptr};
+  Vertex* p1_{nullptr};
+  Vertex* transition_{nullptr};
+  Vertex* p2_{nullptr};
+  Vertex* p3_{nullptr};
+  Vertex* target_a_{nullptr};
+  Vertex* p4_{nullptr};
+  Vertex* p5_{nullptr};
+  Vertex* target_b_{nullptr};
+  Edge* e_source_p1_{nullptr};
+  Edge* e_p1_transition_{nullptr};
+  Edge* e_source_transition_{nullptr};
+  Edge* e_transition_p2_{nullptr};
+  Edge* e_transition_p4_{nullptr};
+  Edge* e_p2_p3_{nullptr};
+  Edge* e_p2_target_a_{nullptr};
+  Edge* e_p3_target_a_{nullptr};
+  Edge* e_p4_p5_{nullptr};
+  Edge* e_p4_target_b_{nullptr};
+  Edge* e_p5_target_b_{nullptr};
+  GraphOfConvexSetsOptions options_;
+};
+
+TEST_F(PointsFactored, L2NormCost){
+  // |xu - xv|₂
+  Matrix<double, 4, 8> A_hd;
+  A_hd.leftCols(4) = Matrix4d::Identity();
+  A_hd.rightCols(4) = -Matrix4d::Identity();
+  auto cost_hd = std::make_shared<solvers::L2NormCost>(A_hd, Vector4d::Zero());
+  e_source_p1_->AddCost(solvers::Binding(cost_hd, {e_source_p1_->xu(), e_source_p1_->xv()}));
+  e_source_transition_->AddCost(solvers::Binding(cost_hd, {e_source_transition_->xu(), e_source_transition_->xv()}));
+  e_p1_transition_->AddCost(solvers::Binding(cost_hd, {e_p1_transition_->xu(), e_p1_transition_->xv()}));
+  
+  Matrix<double, 2, 6> A_ta;
+  A_ta.leftCols(2) = Matrix2d::Identity();
+  A_ta.middleCols(2, 2) = Matrix2d::Zero();
+  A_ta.rightCols(2) = -Matrix2d::Identity();
+  auto cost_ta = std::make_shared<solvers::L2NormCost>(A_ta, Vector2d::Zero());
+  e_transition_p2_->AddCost(solvers::Binding(cost_ta, {e_transition_p2_->xu(), e_transition_p2_->xv()}));
+
+  Matrix<double, 2, 6> A_tb;
+  A_tb.leftCols(2) = Matrix2d::Zero();
+  A_tb.middleCols(2, 2) = Matrix2d::Identity();
+  A_tb.rightCols(2) = -Matrix2d::Identity();
+  auto cost_tb = std::make_shared<solvers::L2NormCost>(A_tb, Vector2d::Zero());
+  e_transition_p4_->AddCost(solvers::Binding(cost_tb, {e_transition_p4_->xu(), e_transition_p4_->xv()}));
+
+  Matrix<double, 2, 4> A;
+  A.leftCols(2) = Matrix2d::Identity();
+  A.rightCols(2) = -Matrix2d::Identity();
+  auto cost = std::make_shared<solvers::L2NormCost>(A, Vector2d::Zero());
+  e_p2_p3_->AddCost(solvers::Binding(cost, {e_p2_p3_->xu(), e_p2_p3_->xv()}));
+  e_p2_target_a_->AddCost(solvers::Binding(cost, {e_p2_target_a_->xu(), e_p2_target_a_->xv()}));
+  e_p3_target_a_->AddCost(solvers::Binding(cost, {e_p3_target_a_->xu(), e_p3_target_a_->xv()}));
+  e_p4_p5_->AddCost(solvers::Binding(cost, {e_p4_p5_->xu(), e_p4_p5_->xv()}));
+  e_p4_target_b_->AddCost(solvers::Binding(cost, {e_p4_target_b_->xu(), e_p4_target_b_->xv()}));
+  e_p5_target_b_->AddCost(solvers::Binding(cost, {e_p5_target_b_->xu(), e_p5_target_b_->xv()}));
+  
+  auto result = g_.SolveShortestPath(*source_, *target_a_, options_);
+
+  ASSERT_TRUE(result.is_success());
+  const auto path = g_.GetSolutionPath(*source_, *target_a_, result);
+  ASSERT_EQ(path.size(), 3);
+  EXPECT_EQ(path[0], e_source_transition_);
+  EXPECT_EQ(path[1], e_transition_p2_);
+  EXPECT_EQ(path[2], e_p2_target_a_);
+}
+
+#pragma GCC diagnostic pop
+
 }  // namespace optimization
 }  // namespace geometry
 }  // namespace drake
