@@ -2194,6 +2194,139 @@ TEST_F(ThreePoints, DeprecatedLinearCost1) {
   }
 }
 
+/* A graph where the first half is higher dimensional, and the second half
+is factored (lower dimensional)
+
+                                      ┌────┐
+                                  ┌──►│ p3 ├────┐
+                                  │   └────┘    │
+          ┌────┐               ┌──┴─┐        ┌──▼─────┐
+     ┌───►│ p1 ├─────┐    ┌───►│ p2 ├───────►│target_a│
+     │    └────┘     │    │    └────┘        └────────┘
+ ┌───┴──┐       ┌────▼────┴┐          ┌────┐
+ │source├──────►│transition│      ┌──►│ p5 ├────┐
+ └──────┘       └─────────┬┘      │   └────┘    │
+                          │    ┌──┴─┐        ┌──▼─────┐
+                          └───►│ p4 ├───────►│target_b│
+                               └────┘        └────────┘
+
+│        dim 4             │ │         dim 2           │
+└──────────────────────────┘ └─────────────────────────┘
+*/
+class PointsFactored : public ::testing::Test{
+  protected:
+    PointsFactored()
+      : p_source_{Vector4d(0., 0., 0., 1.)},
+        p_p1_{Vector4d(1., 1., 1., 2.)},
+        p_transition_{Vector4d(2., 0., 2., 1.)},
+        p_p2_{Vector2d(3., 1.)},
+        p_p3_{Vector2d(4., 2.)},
+        p_target_a_{Vector2d(5., 1.)},
+        p_p4_{Vector2d(3., -1.)},
+        p_p5_{Vector2d(4., 0.)},
+        p_target_b_{Vector2d(5., -1.)} {
+    // Add Vertices
+    source_ = g_.AddVertex(p_source_);
+    p1_ = g_.AddVertex(p_p1_);
+    transition_ = g_.AddVertex(p_transition_);
+    p2_ = g_.AddVertex(p_p2_);
+    p3_ = g_.AddVertex(p_p3_);
+    target_a_ = g_.AddVertex(p_target_a_);
+    p4_ = g_.AddVertex(p_p4_);
+    p5_ = g_.AddVertex(p_p5_);
+    target_b_ = g_.AddVertex(p_target_b_);
+    // Add Edges
+    e_source_p1_ = g_.AddEdge(source_, p1_);
+    e_p1_transition_ = g_.AddEdge(p1_, transition_);
+    e_source_transition_ = g_.AddEdge(source_, transition_);
+    e_transition_p2_ = g_.AddEdge(transition_, p2_);
+    e_transition_p4_ = g_.AddEdge(transition_, p4_);
+    e_p2_p3_ = g_.AddEdge(p2_, p3_);
+    e_p2_target_a_ = g_.AddEdge(p2_, target_a_);
+    e_p3_target_a_ = g_.AddEdge(p3_, target_a_);
+    e_p4_p5_ = g_.AddEdge(p4_, p5_);
+    e_p4_target_b_ = g_.AddEdge(p4_, target_b_);
+    e_p5_target_b_ = g_.AddEdge(p5_, target_b_);
+  }
+
+  GraphOfConvexSets g_;
+  Point p_source_;
+  Point p_p1_;
+  Point p_transition_;
+  Point p_p2_;
+  Point p_p3_;
+  Point p_target_a_;
+  Point p_p4_;
+  Point p_p5_;
+  Point p_target_b_;
+  Vertex* source_{nullptr};
+  Vertex* p1_{nullptr};
+  Vertex* transition_{nullptr};
+  Vertex* p2_{nullptr};
+  Vertex* p3_{nullptr};
+  Vertex* target_a_{nullptr};
+  Vertex* p4_{nullptr};
+  Vertex* p5_{nullptr};
+  Vertex* target_b_{nullptr};
+  Edge* e_source_p1_{nullptr};
+  Edge* e_p1_transition_{nullptr};
+  Edge* e_source_transition_{nullptr};
+  Edge* e_transition_p2_{nullptr};
+  Edge* e_transition_p4_{nullptr};
+  Edge* e_p2_p3_{nullptr};
+  Edge* e_p2_target_a_{nullptr};
+  Edge* e_p3_target_a_{nullptr};
+  Edge* e_p4_p5_{nullptr};
+  Edge* e_p4_target_b_{nullptr};
+  Edge* e_p5_target_b_{nullptr};
+  GraphOfConvexSetsOptions options_;
+};
+
+TEST_F(PointsFactored, L2NormCost){
+  // |xu - xv|₂
+  Matrix<double, 4, 8> A_hd;
+  A_hd.leftCols(4) = Matrix4d::Identity();
+  A_hd.rightCols(4) = -Matrix4d::Identity();
+  auto cost_hd = std::make_shared<solvers::L2NormCost>(A_hd, Vector4d::Zero());
+  e_source_p1_->AddCost(solvers::Binding(cost_hd, {e_source_p1_->xu(), e_source_p1_->xv()}));
+  e_source_transition_->AddCost(solvers::Binding(cost_hd, {e_source_transition_->xu(), e_source_transition_->xv()}));
+  e_p1_transition_->AddCost(solvers::Binding(cost_hd, {e_p1_transition_->xu(), e_p1_transition_->xv()}));
+  
+  Matrix<double, 2, 6> A_ta;
+  A_ta.leftCols(2) = Matrix2d::Identity();
+  A_ta.middleCols(2, 2) = Matrix2d::Zero();
+  A_ta.rightCols(2) = -Matrix2d::Identity();
+  auto cost_ta = std::make_shared<solvers::L2NormCost>(A_ta, Vector2d::Zero());
+  e_transition_p2_->AddCost(solvers::Binding(cost_ta, {e_transition_p2_->xu(), e_transition_p2_->xv()}));
+
+  Matrix<double, 2, 6> A_tb;
+  A_tb.leftCols(2) = Matrix2d::Zero();
+  A_tb.middleCols(2, 2) = Matrix2d::Identity();
+  A_tb.rightCols(2) = -Matrix2d::Identity();
+  auto cost_tb = std::make_shared<solvers::L2NormCost>(A_tb, Vector2d::Zero());
+  e_transition_p4_->AddCost(solvers::Binding(cost_tb, {e_transition_p4_->xu(), e_transition_p4_->xv()}));
+
+  Matrix<double, 2, 4> A;
+  A.leftCols(2) = Matrix2d::Identity();
+  A.rightCols(2) = -Matrix2d::Identity();
+  auto cost = std::make_shared<solvers::L2NormCost>(A, Vector2d::Zero());
+  e_p2_p3_->AddCost(solvers::Binding(cost, {e_p2_p3_->xu(), e_p2_p3_->xv()}));
+  e_p2_target_a_->AddCost(solvers::Binding(cost, {e_p2_target_a_->xu(), e_p2_target_a_->xv()}));
+  e_p3_target_a_->AddCost(solvers::Binding(cost, {e_p3_target_a_->xu(), e_p3_target_a_->xv()}));
+  e_p4_p5_->AddCost(solvers::Binding(cost, {e_p4_p5_->xu(), e_p4_p5_->xv()}));
+  e_p4_target_b_->AddCost(solvers::Binding(cost, {e_p4_target_b_->xu(), e_p4_target_b_->xv()}));
+  e_p5_target_b_->AddCost(solvers::Binding(cost, {e_p5_target_b_->xu(), e_p5_target_b_->xv()}));
+  
+  auto result = g_.SolveShortestPath(*source_, *target_a_, options_);
+
+  ASSERT_TRUE(result.is_success());
+  const auto path = g_.GetSolutionPath(*source_, *target_a_, result);
+  ASSERT_EQ(path.size(), 3);
+  EXPECT_EQ(path[0], e_source_transition_);
+  EXPECT_EQ(path[1], e_transition_p2_);
+  EXPECT_EQ(path[2], e_p2_target_a_);
+}
+
 #pragma GCC diagnostic pop
 
 }  // namespace optimization
