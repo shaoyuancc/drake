@@ -1256,6 +1256,386 @@ MathematicalProgramResult GraphOfConvexSets::SolveShortestPath(
   return result;
 }
 
+MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
+    const Vertex& source, const Vertex& transition,
+    const std::vector<const Vertex*>& targets,
+    const GraphOfConvexSetsOptions& specified_options) const {
+  VertexId source_id = source.id();
+  if (vertices_.find(source_id) == vertices_.end()) {
+    throw std::runtime_error(fmt::format(
+        "Source vertex {} is not a vertex in this GraphOfConvexSets.",
+        source_id));
+  }
+
+  VertexId transition_id = transition.id();
+  if (vertices_.find(transition_id) == vertices_.end()) {
+    throw std::runtime_error(fmt::format(
+        "Transition vertex {} is not a vertex in this GraphOfConvexSets.",
+        transition_id));
+  }
+
+  if (transition.outgoing_edges().size() != targets.size()) {
+    throw std::runtime_error(fmt::format(
+        "Transition vertex {} has {} outgoing edges, but {} targets were "
+        "specified. They need to be equal.",
+        transition.id(), transition.outgoing_edges().size(), targets.size()));
+  }
+
+  for (const auto* target : targets) {
+    VertexId target_id = target->id();
+    if (vertices_.find(target_id) == vertices_.end()) {
+      throw std::runtime_error(fmt::format(
+          "Target vertex {} is not a vertex in this GraphOfConvexSets.",
+          target_id));
+    }
+  }
+
+  // Fill in default options. Note: if these options change, they must also be
+  // updated in the method documentation.
+  GraphOfConvexSetsOptions options = specified_options;
+  if (!options.convex_relaxation) {
+    options.convex_relaxation = false;
+  }
+  else {
+    throw std::runtime_error("Convex relaxation for SolveFactoredShortestPath not implemented yet.");
+  }
+  if (!options.preprocessing) {
+    options.preprocessing = false;
+  }
+  if (!options.max_rounded_paths) {
+    options.max_rounded_paths = 0;
+  }
+
+  std::set<EdgeId> unusable_edges;
+  if (*options.preprocessing) {
+    auto unusable_e_source_to_transition = PreprocessShortestPath(source_id, transition_id, options);
+    unusable_edges.insert(unusable_e_source_to_transition.begin(),
+                          unusable_e_source_to_transition.end());
+    for (const auto* target : targets) {
+      auto unusable_e_transition_to_target = PreprocessShortestPath(transition_id, target->id(), options);
+      unusable_edges.insert(unusable_e_transition_to_target.begin(),
+                            unusable_e_transition_to_target.end());
+    }
+  }
+
+  MathematicalProgram prog;
+
+  std::map<VertexId, std::vector<Edge*>> incoming_edges;
+  std::map<VertexId, std::vector<Edge*>> outgoing_edges;
+  std::map<VertexId, MatrixXDecisionVariable> vertex_edge_ell;
+  std::vector<Edge*> excluded_edges;
+
+  std::map<EdgeId, Variable> relaxed_phi;
+  std::vector<Variable> excluded_phi;
+
+  // The flow constraints below assume that we have some edge out of the source
+  // and into the target, so we handle that case explicitly.
+  bool has_edges_out_of_source = false;
+  bool has_edges_into_transition = false;
+  std::map<VertexId, bool> has_edges_into_targets;
+  std::set<VertexId> target_ids;
+  for (const auto* target : targets) {
+    target_ids.insert(target->id());
+    has_edges_into_targets[target->id()] = false;
+  }
+
+  for (const auto& [edge_id, e] : edges_) {
+    // If an edge is turned off (ϕ = 0) or excluded by preprocessing, don't
+    // include it in the optimization.
+    if (!e->phi_value_.value_or(true) || unusable_edges.count(edge_id)) {
+      // Track excluded edges (ϕ = 0 and preprocessed) so that their variables
+      // can be set in the optimization result.
+      excluded_edges.emplace_back(e.get());
+      if (*options.convex_relaxation) {
+        Variable phi("phi_excluded");
+        excluded_phi.push_back(phi);
+      }
+      continue;
+    }
+    if (e->u().id() == source_id) {
+      has_edges_out_of_source = true;
+    }
+    if (e->v().id() == transition_id) {
+      has_edges_into_transition = true;
+    }
+    if (has_edges_into_targets.count(e->v().id())) {
+      has_edges_into_targets[e->v().id()] = true;
+    }
+
+    outgoing_edges[e->u().id()].emplace_back(e.get());
+    incoming_edges[e->v().id()].emplace_back(e.get());
+
+    Variable phi;
+    if (*options.convex_relaxation) {
+      phi = prog.NewContinuousVariables<1>("phi")[0];
+      prog.AddBoundingBoxConstraint(0, 1, phi);
+      relaxed_phi.emplace(edge_id, phi);
+    } else {
+      phi = e->phi_;
+      prog.AddDecisionVariables(Vector1<Variable>(phi));
+    }
+    if (e->phi_value_.has_value()) {
+      DRAKE_DEMAND(*e->phi_value_);
+      double phi_value = *e->phi_value_ ? 1.0 : 0.0;
+      prog.AddBoundingBoxConstraint(phi_value, phi_value, phi);
+    }
+    prog.AddDecisionVariables(e->y_);
+    prog.AddDecisionVariables(e->z_);
+    prog.AddDecisionVariables(e->ell_);
+    prog.AddLinearCost(VectorXd::Ones(e->ell_.size()), e->ell_);
+
+    // Spatial non-negativity: y ∈ ϕX, z ∈ ϕX.
+    if (e->u().ambient_dimension() > 0) {
+      e->u().set().AddPointInNonnegativeScalingConstraints(&prog, e->y_, phi);
+    }
+    if (e->v().ambient_dimension() > 0) {
+      e->v().set().AddPointInNonnegativeScalingConstraints(&prog, e->z_, phi);
+    }
+
+    // Edge costs.
+    for (int i = 0; i < e->ell_.size(); ++i) {
+      const Binding<Cost>& b = e->costs_[i];
+
+      const VectorXDecisionVariable& old_vars = b.variables();
+      VectorXDecisionVariable vars(old_vars.size() + 2);
+      // vars = [phi; ell; yz_vars]
+      vars[0] = phi;
+      vars[1] = e->ell_[i];
+      for (int j = 0; j < old_vars.size(); ++j) {
+        vars[j + 2] = e->x_to_yz_.at(old_vars[j]);
+      }
+
+      AddPerspectiveCost(&prog, b, vars);
+    }
+
+    // Edge constraints.
+    for (const Binding<Constraint>& b : e->constraints_) {
+      const VectorXDecisionVariable& old_vars = b.variables();
+      VectorXDecisionVariable vars(old_vars.size() + 1);
+      // vars = [phi; yz_vars]
+      vars[0] = phi;
+      for (int j = 0; j < old_vars.size(); ++j) {
+        vars[j + 1] = e->x_to_yz_.at(old_vars[j]);
+      }
+
+      // Note: The use of perspective functions here does not check (nor assume)
+      // that the constraints describe a bounded set.  The boundedness is
+      // ensured by the intersection of these constraints with the convex sets
+      // (on the vertices).
+      AddPerspectiveConstraint(&prog, b, vars);
+    }
+  }
+  if (!has_edges_out_of_source) {
+    MathematicalProgramResult result;
+    log()->info("Source vertex {} has no outgoing edges.", source_id);
+    result.set_solution_result(SolutionResult::kInfeasibleConstraints);
+    return result;
+  }
+  if (!has_edges_into_transition) {
+    MathematicalProgramResult result;
+    log()->info("Transition vertex {} has no incoming edges.", transition_id);
+    result.set_solution_result(SolutionResult::kInfeasibleConstraints);
+    return result;
+  }
+  for (const auto& [target_id, has_edge] : has_edges_into_targets) {
+    if (!has_edge) {
+      MathematicalProgramResult result;
+      log()->info("Target vertex {} has no incoming edges.", target_id);
+      result.set_solution_result(SolutionResult::kInfeasibleConstraints);
+      return result;
+    }
+  }
+
+  for (const std::pair<const VertexId, std::unique_ptr<Vertex>>& vpair :
+       vertices_) {
+    const Vertex* v = vpair.second.get();
+    const bool is_source = (source_id == v->id());
+    const bool is_transition = (transition_id == v->id());
+    const bool is_target = (target_ids.find(v->id()) != target_ids.end());
+
+    const std::vector<Edge*>& incoming = incoming_edges[v->id()];
+    const std::vector<Edge*>& outgoing = outgoing_edges[v->id()];
+
+    // TODO(russt): Make the bindings of these constraints available to the user
+    // so that they can check the dual solution.  Or perhaps better, create more
+    // placeholder variables for the dual solutions, and just pack them into the
+    // program result in the standard way.
+
+    if (incoming.size() + outgoing.size() > 0) {  // in degree + out degree
+      VectorXDecisionVariable vars(incoming.size() + outgoing.size());
+      RowVectorXd a(incoming.size() + outgoing.size());
+      a << RowVectorXd::Constant(incoming.size(), -1.0),
+          RowVectorXd::Ones(outgoing.size());
+
+      int count = 0;
+      for (const Edge* e : incoming) {
+        vars[count++] =
+            *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
+      }
+      for (const Edge* e : outgoing) {
+        vars[count++] =
+            *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
+      }
+      if (is_transition){
+        // For transition vertex, flow constraints are as follows:
+        // ∑ ϕ_in = 1
+        RowVectorXd a_in(incoming.size() + outgoing.size());
+        a_in << RowVectorXd::Ones(incoming.size()),
+                RowVectorXd::Zero(outgoing.size());
+        prog.AddLinearEqualityConstraint(a_in, 1.0, vars);
+        // ϕ_out = 1, ∀ outgoing edges
+        for (const Edge* e : outgoing) {
+          Variable phi =
+              *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
+          prog.AddBoundingBoxConstraint(1.0, 1.0, phi);
+        }
+        
+      }
+      else {
+        // Conservation of flow: ∑ ϕ_out - ∑ ϕ_in = δ(is_source) - δ(is_target).
+        prog.AddLinearEqualityConstraint(
+            a, (is_source ? 1.0 : 0.0) - (is_target ? 1.0 : 0.0), vars);
+      } 
+
+      // Spatial conservation of flow: ∑ z_in = ∑ y_out.
+      if (!is_source && !is_target && !is_transition) {
+        for (int i = 0; i < v->ambient_dimension(); ++i) {
+          count = 0;
+          for (const Edge* e : incoming) {
+            vars[count++] = e->z_[i];
+          }
+          for (const Edge* e : outgoing) {
+            vars[count++] = e->y_[i];
+          }
+          prog.AddLinearEqualityConstraint(a, 0, vars);
+        }
+      }
+    }
+
+    if (outgoing.size() > 0) {
+      int n_v = v->ambient_dimension();
+      VectorXDecisionVariable phi_out(outgoing.size());
+      VectorXDecisionVariable yz_out(outgoing.size() * n_v);
+      for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
+        phi_out[i] = *options.convex_relaxation
+                         ? relaxed_phi.at(outgoing[i]->id())
+                         : outgoing[i]->phi_;
+        yz_out.segment(i * n_v, n_v) = outgoing[i]->y_;
+      }
+      if (!is_transition){
+        // Degree constraint: ∑ ϕ_out <= 1- δ(is_target).
+        prog.AddLinearConstraint(RowVectorXd::Ones(outgoing.size()), 0.0,
+                               is_target ? 0.0 : 1.0, phi_out);
+      }
+
+      if (!is_source && !is_target && !is_transition) {
+        RowVectorXd a = RowVectorXd::Ones(outgoing.size());
+        MatrixXd A_yz(n_v, outgoing.size() * n_v);
+        for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
+          A_yz.block(0, i * n_v, n_v, n_v) = MatrixXd::Identity(n_v, n_v);
+        }
+        for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
+          const Edge* e_out = outgoing[i];
+          if (source_id == e_out->v().id() ||
+              transition_id == e_out->v().id() ||
+              target_ids.find(e_out->v().id()) != target_ids.end()) {
+            continue;
+          }
+          for (const Edge* e_in : incoming) {
+            if (e_in->u().id() == e_out->v().id()) {
+              a[i] = -1.0;
+              phi_out[i] = *options.convex_relaxation
+                               ? relaxed_phi.at(e_in->id())
+                               : e_in->phi_;
+              // Two-cycle constraint: ∑ ϕ_u,out - ϕ_uv - ϕ_vu >= 0
+              prog.AddLinearConstraint(a, 0.0, 1.0, phi_out);
+              A_yz.block(0, i * n_v, n_v, n_v) = -MatrixXd::Identity(n_v, n_v);
+              yz_out.segment(i * n_v, n_v) = e_in->z_;
+              // Two-cycle spatial constraint:
+              // ∑ y_u - y_uv - z_vu ∈ (∑ ϕ_u,out - ϕ_uv - ϕ_vu) X_u
+              v->set().AddPointInNonnegativeScalingConstraints(
+                  &prog, A_yz, VectorXd::Zero(n_v), a, 0, yz_out, phi_out);
+
+              a[i] = 1.0;
+              phi_out[i] = *options.convex_relaxation
+                               ? relaxed_phi.at(e_out->id())
+                               : e_out->phi_;
+              A_yz.block(0, i * n_v, n_v, n_v) = MatrixXd::Identity(n_v, n_v);
+              yz_out.segment(i * n_v, n_v) = e_out->y_;
+            }
+          }
+        }
+      }
+    }
+
+    const std::vector<Edge*>& cost_edges = is_target ? incoming : outgoing;
+
+    // Vertex costs.
+    if (v->ell_.size() > 0) {
+      vertex_edge_ell[v->id()] =
+          prog.NewContinuousVariables(cost_edges.size(), v->ell_.size());
+      for (int ii = 0; ii < v->ell_.size(); ++ii) {
+        const Binding<Cost>& b = v->costs_[ii];
+        const VectorXDecisionVariable& old_vars = b.variables();
+
+        VectorXDecisionVariable vertex_ell =
+            vertex_edge_ell.at(v->id()).col(ii);
+        prog.AddLinearCost(VectorXd::Ones(vertex_ell.size()), vertex_ell);
+
+        for (int jj = 0; jj < static_cast<int>(cost_edges.size()); ++jj) {
+          const Edge* e = cost_edges[jj];
+          VectorXDecisionVariable vars(old_vars.size() + 2);
+          // vars = [phi; ell; yz_vars]
+          if (*options.convex_relaxation) {
+            vars[0] = relaxed_phi.at(e->id());
+          } else {
+            vars[0] = e->phi_;
+          }
+          vars[1] = vertex_ell[jj];
+          for (int kk = 0; kk < old_vars.size(); ++kk) {
+            vars[kk + 2] = e->x_to_yz_.at(old_vars[kk]);
+          }
+
+          AddPerspectiveCost(&prog, b, vars);
+        }
+      }
+    }
+
+    // Vertex constraints.
+    for (const Binding<Constraint>& b : v->constraints_) {
+      const VectorXDecisionVariable& old_vars = b.variables();
+
+      for (const Edge* e : cost_edges) {
+        VectorXDecisionVariable vars(old_vars.size() + 1);
+        // vars = [phi; yz_vars]
+        if (*options.convex_relaxation) {
+          vars[0] = relaxed_phi.at(e->id());
+        } else {
+          vars[0] = e->phi_;
+        }
+        for (int ii = 0; ii < old_vars.size(); ++ii) {
+          vars[ii + 1] = e->x_to_yz_.at(old_vars[ii]);
+        }
+
+        // Note: The use of perspective functions here does not check (nor
+        // assume) that the constraints describe a bounded set.  The boundedness
+        // is ensured by the intersection of these constraints with the convex
+        // sets (on the vertices).
+        AddPerspectiveConstraint(&prog, b, vars);
+      }
+    }
+  }
+
+  MathematicalProgramResult result = Solve(prog, options);
+  log()->info(
+      "Solved GCS shortest path using {} with convex_relaxation={} and "
+      "preprocessing={}{}.",
+      result.get_solver_id().name(), *options.convex_relaxation,
+      *options.preprocessing,
+      *options.max_rounded_paths > 0 ? " and rounding" : " and no rounding");
+  return result;
+}
+
 std::vector<const Edge*> GraphOfConvexSets::GetSolutionPath(
     const Vertex& source, const Vertex& target,
     const solvers::MathematicalProgramResult& result, double tolerance) const {
