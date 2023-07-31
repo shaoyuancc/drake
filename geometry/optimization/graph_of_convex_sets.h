@@ -555,11 +555,24 @@ class GraphOfConvexSets {
           GraphOfConvexSetsOptions()) const;
 
   /** Solves the shortest path on a factored graph, where there is one path
- * between source and transition, all outgoing edges of transition are active,
- * and there are n_transition_outgoing_edges paths between transition and target.
+  between source and transition, all outgoing edges of transition are active,
+  and there are n_transition_outgoing_edges paths between transition and targets.
   */
   solvers::MathematicalProgramResult SolveFactoredShortestPath(
       const Vertex& source, const Vertex& transition,
+      const std::vector<const Vertex*>& targets,
+      const GraphOfConvexSetsOptions& options =
+          GraphOfConvexSetsOptions()) const;
+
+  /** Solves the shortest path on a factored graph, where there is one path
+  between source and transition (convex restriction fixed path), and past
+  the transition, the path is not fixed (standard gcs shortest path).
+  All outgoing edges of transition are active, and there are 
+  n_transition_outgoing_edges paths between transition and targets.
+  */
+  solvers::MathematicalProgramResult SolveFactoredConvexRestriction(
+      const std::vector<const Edge*>& active_edges,
+      const Vertex& transition,
       const std::vector<const Vertex*>& targets,
       const GraphOfConvexSetsOptions& options =
           GraphOfConvexSetsOptions()) const;

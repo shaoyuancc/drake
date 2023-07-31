@@ -2247,6 +2247,41 @@ class PointsFactored : public ::testing::Test{
     e_p4_p5_ = g_.AddEdge(p4_, p5_);
     e_p4_target_b_ = g_.AddEdge(p4_, target_b_);
     e_p5_target_b_ = g_.AddEdge(p5_, target_b_);
+
+    // Add costs
+    // |xu - xv|₂
+    Matrix<double, 4, 8> A_hd;
+    A_hd.leftCols(4) = Matrix4d::Identity();
+    A_hd.rightCols(4) = -Matrix4d::Identity();
+    auto cost_hd = std::make_shared<solvers::L2NormCost>(A_hd, Vector4d::Zero());
+    e_source_p1_->AddCost(solvers::Binding(cost_hd, {e_source_p1_->xu(), e_source_p1_->xv()}));
+    e_source_transition_->AddCost(solvers::Binding(cost_hd, {e_source_transition_->xu(), e_source_transition_->xv()}));
+    e_p1_transition_->AddCost(solvers::Binding(cost_hd, {e_p1_transition_->xu(), e_p1_transition_->xv()}));
+    
+    Matrix<double, 2, 6> A_ta;
+    A_ta.leftCols(2) = Matrix2d::Identity();
+    A_ta.middleCols(2, 2) = Matrix2d::Zero();
+    A_ta.rightCols(2) = -Matrix2d::Identity();
+    auto cost_ta = std::make_shared<solvers::L2NormCost>(A_ta, Vector2d::Zero());
+    e_transition_p2_->AddCost(solvers::Binding(cost_ta, {e_transition_p2_->xu(), e_transition_p2_->xv()}));
+
+    Matrix<double, 2, 6> A_tb;
+    A_tb.leftCols(2) = Matrix2d::Zero();
+    A_tb.middleCols(2, 2) = Matrix2d::Identity();
+    A_tb.rightCols(2) = -Matrix2d::Identity();
+    auto cost_tb = std::make_shared<solvers::L2NormCost>(A_tb, Vector2d::Zero());
+    e_transition_p4_->AddCost(solvers::Binding(cost_tb, {e_transition_p4_->xu(), e_transition_p4_->xv()}));
+
+    Matrix<double, 2, 4> A;
+    A.leftCols(2) = Matrix2d::Identity();
+    A.rightCols(2) = -Matrix2d::Identity();
+    auto cost = std::make_shared<solvers::L2NormCost>(A, Vector2d::Zero());
+    e_p2_p3_->AddCost(solvers::Binding(cost, {e_p2_p3_->xu(), e_p2_p3_->xv()}));
+    e_p2_target_a_->AddCost(solvers::Binding(cost, {e_p2_target_a_->xu(), e_p2_target_a_->xv()}));
+    e_p3_target_a_->AddCost(solvers::Binding(cost, {e_p3_target_a_->xu(), e_p3_target_a_->xv()}));
+    e_p4_p5_->AddCost(solvers::Binding(cost, {e_p4_p5_->xu(), e_p4_p5_->xv()}));
+    e_p4_target_b_->AddCost(solvers::Binding(cost, {e_p4_target_b_->xu(), e_p4_target_b_->xv()}));
+    e_p5_target_b_->AddCost(solvers::Binding(cost, {e_p5_target_b_->xu(), e_p5_target_b_->xv()}));
   }
 
   GraphOfConvexSets g_;
@@ -2283,39 +2318,6 @@ class PointsFactored : public ::testing::Test{
 };
 
 TEST_F(PointsFactored, L2NormCost){
-  // |xu - xv|₂
-  Matrix<double, 4, 8> A_hd;
-  A_hd.leftCols(4) = Matrix4d::Identity();
-  A_hd.rightCols(4) = -Matrix4d::Identity();
-  auto cost_hd = std::make_shared<solvers::L2NormCost>(A_hd, Vector4d::Zero());
-  e_source_p1_->AddCost(solvers::Binding(cost_hd, {e_source_p1_->xu(), e_source_p1_->xv()}));
-  e_source_transition_->AddCost(solvers::Binding(cost_hd, {e_source_transition_->xu(), e_source_transition_->xv()}));
-  e_p1_transition_->AddCost(solvers::Binding(cost_hd, {e_p1_transition_->xu(), e_p1_transition_->xv()}));
-  
-  Matrix<double, 2, 6> A_ta;
-  A_ta.leftCols(2) = Matrix2d::Identity();
-  A_ta.middleCols(2, 2) = Matrix2d::Zero();
-  A_ta.rightCols(2) = -Matrix2d::Identity();
-  auto cost_ta = std::make_shared<solvers::L2NormCost>(A_ta, Vector2d::Zero());
-  e_transition_p2_->AddCost(solvers::Binding(cost_ta, {e_transition_p2_->xu(), e_transition_p2_->xv()}));
-
-  Matrix<double, 2, 6> A_tb;
-  A_tb.leftCols(2) = Matrix2d::Zero();
-  A_tb.middleCols(2, 2) = Matrix2d::Identity();
-  A_tb.rightCols(2) = -Matrix2d::Identity();
-  auto cost_tb = std::make_shared<solvers::L2NormCost>(A_tb, Vector2d::Zero());
-  e_transition_p4_->AddCost(solvers::Binding(cost_tb, {e_transition_p4_->xu(), e_transition_p4_->xv()}));
-
-  Matrix<double, 2, 4> A;
-  A.leftCols(2) = Matrix2d::Identity();
-  A.rightCols(2) = -Matrix2d::Identity();
-  auto cost = std::make_shared<solvers::L2NormCost>(A, Vector2d::Zero());
-  e_p2_p3_->AddCost(solvers::Binding(cost, {e_p2_p3_->xu(), e_p2_p3_->xv()}));
-  e_p2_target_a_->AddCost(solvers::Binding(cost, {e_p2_target_a_->xu(), e_p2_target_a_->xv()}));
-  e_p3_target_a_->AddCost(solvers::Binding(cost, {e_p3_target_a_->xu(), e_p3_target_a_->xv()}));
-  e_p4_p5_->AddCost(solvers::Binding(cost, {e_p4_p5_->xu(), e_p4_p5_->xv()}));
-  e_p4_target_b_->AddCost(solvers::Binding(cost, {e_p4_target_b_->xu(), e_p4_target_b_->xv()}));
-  e_p5_target_b_->AddCost(solvers::Binding(cost, {e_p5_target_b_->xu(), e_p5_target_b_->xv()}));
   
   auto result = g_.SolveShortestPath(*source_, *target_a_, options_);
 
@@ -2331,43 +2333,7 @@ TEST_F(PointsFactored, L2NormCost){
 }
 
 TEST_F(PointsFactored, SolveFactoredShortestPath){
-  // |xu - xv|₂
-  Matrix<double, 4, 8> A_hd;
-  A_hd.leftCols(4) = Matrix4d::Identity();
-  A_hd.rightCols(4) = -Matrix4d::Identity();
-  auto cost_hd = std::make_shared<solvers::L2NormCost>(A_hd, Vector4d::Zero());
-  e_source_p1_->AddCost(solvers::Binding(cost_hd, {e_source_p1_->xu(), e_source_p1_->xv()}));
-  e_source_transition_->AddCost(solvers::Binding(cost_hd, {e_source_transition_->xu(), e_source_transition_->xv()}));
-  e_p1_transition_->AddCost(solvers::Binding(cost_hd, {e_p1_transition_->xu(), e_p1_transition_->xv()}));
-  
-  Matrix<double, 2, 6> A_ta;
-  A_ta.leftCols(2) = Matrix2d::Identity();
-  A_ta.middleCols(2, 2) = Matrix2d::Zero();
-  A_ta.rightCols(2) = -Matrix2d::Identity();
-  auto cost_ta = std::make_shared<solvers::L2NormCost>(A_ta, Vector2d::Zero());
-  e_transition_p2_->AddCost(solvers::Binding(cost_ta, {e_transition_p2_->xu(), e_transition_p2_->xv()}));
-
-  Matrix<double, 2, 6> A_tb;
-  A_tb.leftCols(2) = Matrix2d::Zero();
-  A_tb.middleCols(2, 2) = Matrix2d::Identity();
-  A_tb.rightCols(2) = -Matrix2d::Identity();
-  auto cost_tb = std::make_shared<solvers::L2NormCost>(A_tb, Vector2d::Zero());
-  e_transition_p4_->AddCost(solvers::Binding(cost_tb, {e_transition_p4_->xu(), e_transition_p4_->xv()}));
-
-  Matrix<double, 2, 4> A;
-  A.leftCols(2) = Matrix2d::Identity();
-  A.rightCols(2) = -Matrix2d::Identity();
-  auto cost = std::make_shared<solvers::L2NormCost>(A, Vector2d::Zero());
-  e_p2_p3_->AddCost(solvers::Binding(cost, {e_p2_p3_->xu(), e_p2_p3_->xv()}));
-  e_p2_target_a_->AddCost(solvers::Binding(cost, {e_p2_target_a_->xu(), e_p2_target_a_->xv()}));
-  e_p3_target_a_->AddCost(solvers::Binding(cost, {e_p3_target_a_->xu(), e_p3_target_a_->xv()}));
-  e_p4_p5_->AddCost(solvers::Binding(cost, {e_p4_p5_->xu(), e_p4_p5_->xv()}));
-  e_p4_target_b_->AddCost(solvers::Binding(cost, {e_p4_target_b_->xu(), e_p4_target_b_->xv()}));
-  e_p5_target_b_->AddCost(solvers::Binding(cost, {e_p5_target_b_->xu(), e_p5_target_b_->xv()}));
-  
-  std::vector<const Vertex*> targets;
-  targets.push_back(target_a_);
-  targets.push_back(target_b_);
+  const std::vector<const Vertex*> targets = {target_a_, target_b_};
   auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
     targets, options_);
 
@@ -2385,6 +2351,28 @@ TEST_F(PointsFactored, SolveFactoredShortestPath){
   EXPECT_EQ(result.GetSolution(e_p4_p5_->phi()), 0.);
   EXPECT_EQ(result.GetSolution(e_p5_target_b_->phi()), 0.);
   EXPECT_EQ(result.GetSolution(e_p4_target_b_->phi()), 1.);
+}
+
+TEST_F(PointsFactored, SolveFactoredConvexRestriction){
+  const std::vector<const Vertex*> targets = {target_a_, target_b_};
+  const std::vector<const Edge*> active_edges = {e_source_transition_};
+  auto result = g_.SolveFactoredConvexRestriction(active_edges, *transition_,
+    targets, options_);
+
+  ASSERT_TRUE(result.is_success());
+  double tol = 1e-6;
+  EXPECT_NEAR(result.get_optimal_cost(), 9.65685424949238, tol);
+  EXPECT_NEAR(result.GetSolution(e_source_p1_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_source_transition_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_p1_transition_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_transition_p2_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_transition_p4_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_p2_p3_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_p3_target_a_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_p2_target_a_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_p4_p5_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_p5_target_b_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_p4_target_b_->phi()), 1., tol);
 }
 
 #pragma GCC diagnostic pop
