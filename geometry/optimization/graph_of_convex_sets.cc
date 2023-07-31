@@ -1302,21 +1302,15 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
   if (!options.preprocessing) {
     options.preprocessing = false;
   }
+  else {
+    throw std::runtime_error("Preprocessing for SolveFactoredShortestPath not implemented yet.");
+  }
   if (!options.max_rounded_paths) {
     options.max_rounded_paths = 0;
   }
 
+  // Placeholder until we implement preprocessing.
   std::set<EdgeId> unusable_edges;
-  if (*options.preprocessing) {
-    auto unusable_e_source_to_transition = PreprocessShortestPath(source_id, transition_id, options);
-    unusable_edges.insert(unusable_e_source_to_transition.begin(),
-                          unusable_e_source_to_transition.end());
-    for (const auto* target : targets) {
-      auto unusable_e_transition_to_target = PreprocessShortestPath(transition_id, target->id(), options);
-      unusable_edges.insert(unusable_e_transition_to_target.begin(),
-                            unusable_e_transition_to_target.end());
-    }
-  }
 
   MathematicalProgram prog;
 
@@ -1633,8 +1627,99 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
       result.get_solver_id().name(), *options.convex_relaxation,
       *options.preprocessing,
       *options.max_rounded_paths > 0 ? " and rounding" : " and no rounding");
+
+  
+  // Push the placeholder variables and excluded edge variables into the
+  // result, so that they can be accessed as if they were variables included
+  // in the optimization.
+  int num_placeholder_vars = relaxed_phi.size();
+  for (const std::pair<const VertexId, std::unique_ptr<Vertex>>& vpair :
+        vertices_) {
+    num_placeholder_vars += vpair.second->ambient_dimension();
+    num_placeholder_vars += vpair.second->ell_.size();
+  }
+  for (const Edge* e : excluded_edges) {
+    num_placeholder_vars += e->y_.size() + e->z_.size() + e->ell_.size() + 1;
+  }
+  num_placeholder_vars += excluded_phi.size();
+  std::unordered_map<symbolic::Variable::Id, int> decision_variable_index =
+      prog.decision_variable_index();
+  int count = result.get_x_val().size();
+  Eigen::VectorXd x_val(count + num_placeholder_vars);
+  x_val.head(count) = result.get_x_val();
+  for (const Edge* e : excluded_edges) {
+    for (int i = 0; i < e->y_.size(); ++i) {
+      decision_variable_index.emplace(e->y_[i].get_id(), count);
+      x_val[count++] = 0;
+    }
+    for (int i = 0; i < e->z_.size(); ++i) {
+      decision_variable_index.emplace(e->z_[i].get_id(), count);
+      x_val[count++] = 0;
+    }
+    for (int i = 0; i < e->ell_.size(); ++i) {
+      decision_variable_index.emplace(e->ell_[i].get_id(), count);
+      x_val[count++] = 0;
+    }
+    decision_variable_index.emplace(e->phi_.get_id(), count);
+    x_val[count++] = 0;
+  }
+  for (const Variable& phi : excluded_phi) {
+    decision_variable_index.emplace(phi.get_id(), count);
+    x_val[count++] = 0;
+  }
+  for (const std::pair<const VertexId, std::unique_ptr<Vertex>>& vpair :
+        vertices_) {
+    const Vertex* v = vpair.second.get();
+    const bool is_target = (target_ids.find(v->id()) != target_ids.end());
+    VectorXd x_v = VectorXd::Zero(v->ambient_dimension());
+    double sum_phi = 0;
+    if (is_target) {
+      sum_phi = 1.0;
+      for (const auto& e : incoming_edges[v->id()]) {
+        x_v += result.GetSolution(e->z_);
+      }
+    } else {
+      for (const auto& e : outgoing_edges[v->id()]) {
+        x_v += result.GetSolution(e->y_);
+        sum_phi += result.GetSolution(
+            *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_);
+      }
+    }
+    // In the convex relaxation, sum_relaxed_phi may not be one even for
+    // vertices in the shortest path. We undo yₑ = ϕₑ xᵤ here to ensure that
+    // xᵤ is in v->set(). If ∑ ϕₑ is small enough that numerical errors
+    // prevent the projection back into the Xᵤ, then we prefer to return NaN.
+    if (sum_phi < 100.0 * std::numeric_limits<double>::epsilon()) {
+      x_v = VectorXd::Constant(v->ambient_dimension(),
+                                std::numeric_limits<double>::quiet_NaN());
+    } else if (*options.convex_relaxation) {
+      x_v /= sum_phi;
+    }
+    for (int i = 0; i < v->ambient_dimension(); ++i) {
+      decision_variable_index.emplace(v->x()[i].get_id(), count);
+      x_val[count++] = x_v[i];
+    }
+    for (int ii = 0; ii < v->ell_.size(); ++ii) {
+      decision_variable_index.emplace(v->ell_[ii].get_id(), count);
+      x_val[count++] =
+          result.GetSolution(vertex_edge_ell.at(v->id()).col(ii)).sum();
+    }
+  }
+  if (*options.convex_relaxation) {
+    // Write the value of the relaxed phi into the phi placeholder.
+    for (const auto& [edge_id, relaxed_phi_var] : relaxed_phi) {
+      decision_variable_index.emplace(edges_.at(edge_id)->phi_.get_id(),
+                                      count);
+      x_val[count++] = result.GetSolution(relaxed_phi_var);
+    }
+  }
+  result.set_decision_variable_index(decision_variable_index);
+  result.set_x_val(x_val);
+
   return result;
 }
+
+
 
 std::vector<const Edge*> GraphOfConvexSets::GetSolutionPath(
     const Vertex& source, const Vertex& target,
@@ -1876,6 +1961,507 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
   }
   result.set_decision_variable_index(decision_variable_index);
   result.set_x_val(x_val);
+
+  return result;
+}
+
+MathematicalProgramResult GraphOfConvexSets::SolveFactoredConvexRestriction(
+    const std::vector<const Edge*>& active_edges,
+    const Vertex & transition,
+    const std::vector<const Vertex*>& targets,
+    const GraphOfConvexSetsOptions & specified_options) const {
+
+  if (transition.outgoing_edges().size() != targets.size()) {
+    throw std::runtime_error(fmt::format(
+        "Transition vertex {} has {} outgoing edges, but {} targets were "
+        "specified. They need to be equal.",
+        transition.id(), transition.outgoing_edges().size(), targets.size()));
+  }
+
+  for (const auto* target : targets) {
+    VertexId target_id = target->id();
+    if (vertices_.find(target_id) == vertices_.end()) {
+      throw std::runtime_error(fmt::format(
+          "Target vertex {} is not a vertex in this GraphOfConvexSets.",
+          target_id));
+    }
+  }
+
+  // Fill in default options. Note: if these options change, they must also be
+  // updated in the method documentation.
+  GraphOfConvexSetsOptions options = specified_options;
+  if (!options.convex_relaxation) {
+    options.convex_relaxation = false;
+  }
+  else {
+    throw std::runtime_error("Convex relaxation for SolveFactoredConvexRestriction not implemented yet.");
+  }
+  if (!options.preprocessing) {
+    options.preprocessing = false;
+  }
+  if (!options.max_rounded_paths) {
+    options.max_rounded_paths = 0;
+  }
+
+  MathematicalProgram prog;
+
+  // CONVEX RESTRICTION PORTION OF THE GRAPH
+  std::set<const EdgeId> active_edge_ids;
+  std::set<const Vertex*, VertexIdComparator> vertices_conv_res;
+  bool is_transition_in_active_edges = false;
+  for (const auto* e : active_edges) {
+    if (edges_.count(e->id()) == 0) {
+      throw std::runtime_error(
+          fmt::format("Edge {} is not in the graph.", e->name()));
+    }
+    vertices_conv_res.emplace(&e->u());
+    vertices_conv_res.emplace(&e->v());
+    active_edge_ids.emplace(e->id());
+    if (&e->v() == &transition) {
+      is_transition_in_active_edges = true;
+    }
+  }
+  if (!is_transition_in_active_edges) {
+    throw std::runtime_error(
+        fmt::format("Transition {} is not an outgoing vertex in the active edges.", transition.name()));
+  }
+
+  for (const auto* v : vertices_conv_res) {
+    if (v->set().ambient_dimension() == 0) {
+      continue;
+    }
+    prog.AddDecisionVariables(v->x());
+    v->set().AddPointInSetConstraints(&prog, v->x());
+
+    // Vertex costs.
+    for (const Binding<Cost>& b : v->costs_) {
+      prog.AddCost(b);
+    }
+    // Vertex constraints.
+    for (const Binding<Constraint>& b : v->constraints_) {
+      prog.AddConstraint(b);
+    }
+  }
+
+  for (const auto* e : active_edges) {
+    // Edge costs.
+    for (const Binding<Cost>& b : e->costs_) {
+      prog.AddCost(b);
+    }
+    // Edge constraints.
+    for (const Binding<Constraint>& b : e->constraints_) {
+      prog.AddConstraint(b);
+    }
+  }
+
+  // STANDARD SPP PORTION OF THE GRAPH
+
+  // Placeholder until we implement preprocessing.
+  std::set<EdgeId> unusable_edges;
+
+  std::map<VertexId, std::vector<Edge*>> incoming_edges;
+  std::map<VertexId, std::vector<Edge*>> outgoing_edges;
+  std::map<VertexId, MatrixXDecisionVariable> vertex_edge_ell;
+  std::vector<Edge*> excluded_edges;
+
+  std::map<EdgeId, Variable> relaxed_phi;
+  std::vector<Variable> excluded_phi;
+
+  std::map<VertexId, bool> has_edges_into_targets;
+  std::set<VertexId> target_ids;
+  for (const auto* target : targets) {
+    target_ids.emplace(target->id());
+    has_edges_into_targets[target->id()] = false;
+  }
+  std::map<VertexId, bool> has_edges_out_of_sources;
+  // std::set<VertexId> post_transition_source_ids;
+  for (const auto* e : transition.outgoing_edges()) {
+    // post_transition_source_ids.insert(e->v().id());
+    has_edges_out_of_sources[e->v().id()] = false;
+  }
+
+  for (const auto& [edge_id, e] : edges_) {
+    // If an edge is turned off (ϕ = 0) or excluded by preprocessing, 
+    // or it has already been handled in the convex restriction part above
+    // don't include (or reinclude) it in the optimization.
+    if (!e->phi_value_.value_or(true) || unusable_edges.count(edge_id) ||
+        active_edge_ids.count(edge_id)) {
+      // Track excluded edges (ϕ = 0 and preprocessed) so that their variables
+      // can be set in the optimization result.
+      excluded_edges.emplace_back(e.get());
+      if (*options.convex_relaxation) {
+        Variable phi("phi_excluded");
+        excluded_phi.push_back(phi);
+      }
+      continue;
+    }
+    if (has_edges_into_targets.count(e->v().id())) {
+      has_edges_into_targets[e->v().id()] = true;
+    }
+    if (has_edges_out_of_sources.count(e->u().id())) {
+      has_edges_out_of_sources[e->u().id()] = true;
+    }
+    const bool is_transition_outgoing_edge = (e->u().id() == transition.id());
+
+    outgoing_edges[e->u().id()].emplace_back(e.get());
+    incoming_edges[e->v().id()].emplace_back(e.get());
+
+    Variable phi;
+    if (*options.convex_relaxation) {
+      phi = prog.NewContinuousVariables<1>("phi")[0];
+      prog.AddBoundingBoxConstraint(0, 1, phi);
+      relaxed_phi.emplace(edge_id, phi);
+    } else {
+      phi = e->phi_;
+      prog.AddDecisionVariables(Vector1<Variable>(phi));
+    }
+    // Override phi_value for transition outgoing edges
+    if (is_transition_outgoing_edge) {
+      prog.AddBoundingBoxConstraint(1.0, 1.0, phi);
+    }
+    else if (e->phi_value_.has_value()) {
+      DRAKE_DEMAND(*e->phi_value_);
+      double phi_value = *e->phi_value_ ? 1.0 : 0.0;
+      prog.AddBoundingBoxConstraint(phi_value, phi_value, phi);
+    }
+    prog.AddDecisionVariables(e->y_);
+    prog.AddDecisionVariables(e->z_);
+    prog.AddDecisionVariables(e->ell_);
+    prog.AddLinearCost(VectorXd::Ones(e->ell_.size()), e->ell_);
+
+    // Spatial non-negativity: y ∈ ϕX, z ∈ ϕX.
+    if (e->u().ambient_dimension() > 0) {
+      e->u().set().AddPointInNonnegativeScalingConstraints(&prog, e->y_, phi);
+    }
+    if (e->v().ambient_dimension() > 0) {
+      e->v().set().AddPointInNonnegativeScalingConstraints(&prog, e->z_, phi);
+    }
+
+    // Edge costs.
+    for (int i = 0; i < e->ell_.size(); ++i) {
+      const Binding<Cost>& b = e->costs_[i];
+
+      const VectorXDecisionVariable& old_vars = b.variables();
+      VectorXDecisionVariable vars(old_vars.size() + 2);
+      // vars = [phi; ell; yz_vars]
+      vars[0] = phi;
+      vars[1] = e->ell_[i];
+      for (int j = 0; j < old_vars.size(); ++j) {
+        vars[j + 2] = e->x_to_yz_.at(old_vars[j]);
+      }
+
+      AddPerspectiveCost(&prog, b, vars);
+    }
+
+    // Edge constraints.
+    for (const Binding<Constraint>& b : e->constraints_) {
+      const VectorXDecisionVariable& old_vars = b.variables();
+      VectorXDecisionVariable vars(old_vars.size() + 1);
+      // vars = [phi; yz_vars]
+      vars[0] = phi;
+      for (int j = 0; j < old_vars.size(); ++j) {
+        vars[j + 1] = e->x_to_yz_.at(old_vars[j]);
+      }
+
+      // Note: The use of perspective functions here does not check (nor assume)
+      // that the constraints describe a bounded set.  The boundedness is
+      // ensured by the intersection of these constraints with the convex sets
+      // (on the vertices).
+      AddPerspectiveConstraint(&prog, b, vars);
+    }
+  }
+  for (const auto& [target_id, has_edge] : has_edges_into_targets) {
+    if (!has_edge) {
+      MathematicalProgramResult result;
+      log()->info("Target vertex {} has no incoming edges.", target_id);
+      result.set_solution_result(SolutionResult::kInfeasibleConstraints);
+      return result;
+    }
+  }
+  for (const auto& [source_id, has_edge] : has_edges_out_of_sources) {
+    if (!has_edge) {
+      MathematicalProgramResult result;
+      log()->info("Post transition source vertex {} has no outgoing edges.", source_id);
+      result.set_solution_result(SolutionResult::kInfeasibleConstraints);
+      return result;
+    }
+  }
+
+  for (const std::pair<const VertexId, std::unique_ptr<Vertex>>& vpair :
+       vertices_) {
+    const Vertex* v = vpair.second.get();
+    if (vertices_conv_res.count(v) > 0) {
+      continue;
+    }
+    // const bool is_source = (post_transition_source_ids.find(v->id()) != post_transition_source_ids.end());
+    const bool is_target = (target_ids.find(v->id()) != target_ids.end());
+
+    const std::vector<Edge*>& incoming = incoming_edges[v->id()];
+    const std::vector<Edge*>& outgoing = outgoing_edges[v->id()];
+
+    // TODO(russt): Make the bindings of these constraints available to the user
+    // so that they can check the dual solution.  Or perhaps better, create more
+    // placeholder variables for the dual solutions, and just pack them into the
+    // program result in the standard way.
+
+    if (incoming.size() + outgoing.size() > 0) {  // in degree + out degree
+      VectorXDecisionVariable vars(incoming.size() + outgoing.size());
+      RowVectorXd a(incoming.size() + outgoing.size());
+      a << RowVectorXd::Constant(incoming.size(), -1.0),
+          RowVectorXd::Ones(outgoing.size());
+
+      int count = 0;
+      for (const Edge* e : incoming) {
+        vars[count++] =
+            *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
+      }
+      for (const Edge* e : outgoing) {
+        vars[count++] =
+            *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
+      }
+      
+      // Note that the transition and all vertices in the convex restriction portion of the graph
+      // are not being processed here.
+
+      // Conservation of flow: ∑ ϕ_out - ∑ ϕ_in = - δ(is_target).
+      prog.AddLinearEqualityConstraint(
+          a, - (is_target ? 1.0 : 0.0), vars);
+
+      // Spatial conservation of flow: ∑ z_in = ∑ y_out.
+      if (!is_target) {
+        for (int i = 0; i < v->ambient_dimension(); ++i) {
+          count = 0;
+          for (const Edge* e : incoming) {
+            vars[count++] = e->z_[i];
+          }
+          for (const Edge* e : outgoing) {
+            vars[count++] = e->y_[i];
+          }
+          prog.AddLinearEqualityConstraint(a, 0, vars);
+        }
+      }
+    }
+
+    if (outgoing.size() > 0) {
+      int n_v = v->ambient_dimension();
+      VectorXDecisionVariable phi_out(outgoing.size());
+      VectorXDecisionVariable yz_out(outgoing.size() * n_v);
+      for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
+        phi_out[i] = *options.convex_relaxation
+                         ? relaxed_phi.at(outgoing[i]->id())
+                         : outgoing[i]->phi_;
+        yz_out.segment(i * n_v, n_v) = outgoing[i]->y_;
+      }
+      // Degree constraint: ∑ ϕ_out <= 1- δ(is_target).
+      prog.AddLinearConstraint(RowVectorXd::Ones(outgoing.size()), 0.0,
+                               is_target ? 0.0 : 1.0, phi_out);
+
+      if (!is_target) {
+        RowVectorXd a = RowVectorXd::Ones(outgoing.size());
+        MatrixXd A_yz(n_v, outgoing.size() * n_v);
+        for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
+          A_yz.block(0, i * n_v, n_v, n_v) = MatrixXd::Identity(n_v, n_v);
+        }
+        for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
+          const Edge* e_out = outgoing[i];
+          if (target_ids.find(e_out->v().id()) != target_ids.end()) {
+            continue;
+          }
+          for (const Edge* e_in : incoming) {
+            if (e_in->u().id() == e_out->v().id()) {
+              a[i] = -1.0;
+              phi_out[i] = *options.convex_relaxation
+                               ? relaxed_phi.at(e_in->id())
+                               : e_in->phi_;
+              // Two-cycle constraint: ∑ ϕ_u,out - ϕ_uv - ϕ_vu >= 0
+              prog.AddLinearConstraint(a, 0.0, 1.0, phi_out);
+              A_yz.block(0, i * n_v, n_v, n_v) = -MatrixXd::Identity(n_v, n_v);
+              yz_out.segment(i * n_v, n_v) = e_in->z_;
+              // Two-cycle spatial constraint:
+              // ∑ y_u - y_uv - z_vu ∈ (∑ ϕ_u,out - ϕ_uv - ϕ_vu) X_u
+              v->set().AddPointInNonnegativeScalingConstraints(
+                  &prog, A_yz, VectorXd::Zero(n_v), a, 0, yz_out, phi_out);
+
+              a[i] = 1.0;
+              phi_out[i] = *options.convex_relaxation
+                               ? relaxed_phi.at(e_out->id())
+                               : e_out->phi_;
+              A_yz.block(0, i * n_v, n_v, n_v) = MatrixXd::Identity(n_v, n_v);
+              yz_out.segment(i * n_v, n_v) = e_out->y_;
+            }
+          }
+        }
+      }
+    }
+
+    // Since even the "source" vertices we are considering have active incoming edges,
+    // If we process the incoming edges for each vertex, we will process all the edges.
+    const std::vector<Edge*>& cost_edges = incoming;
+
+    // Vertex costs.
+    if (v->ell_.size() > 0) {
+      vertex_edge_ell[v->id()] =
+          prog.NewContinuousVariables(cost_edges.size(), v->ell_.size());
+      for (int ii = 0; ii < v->ell_.size(); ++ii) {
+        const Binding<Cost>& b = v->costs_[ii];
+        const VectorXDecisionVariable& old_vars = b.variables();
+
+        VectorXDecisionVariable vertex_ell =
+            vertex_edge_ell.at(v->id()).col(ii);
+        prog.AddLinearCost(VectorXd::Ones(vertex_ell.size()), vertex_ell);
+
+        for (int jj = 0; jj < static_cast<int>(cost_edges.size()); ++jj) {
+          const Edge* e = cost_edges[jj];
+          VectorXDecisionVariable vars(old_vars.size() + 2);
+          // vars = [phi; ell; yz_vars]
+          if (*options.convex_relaxation) {
+            vars[0] = relaxed_phi.at(e->id());
+          } else {
+            vars[0] = e->phi_;
+          }
+          vars[1] = vertex_ell[jj];
+          for (int kk = 0; kk < old_vars.size(); ++kk) {
+            vars[kk + 2] = e->x_to_yz_.at(old_vars[kk]);
+          }
+
+          AddPerspectiveCost(&prog, b, vars);
+        }
+      }
+    }
+
+    // Vertex constraints.
+    for (const Binding<Constraint>& b : v->constraints_) {
+      const VectorXDecisionVariable& old_vars = b.variables();
+
+      for (const Edge* e : cost_edges) {
+        VectorXDecisionVariable vars(old_vars.size() + 1);
+        // vars = [phi; yz_vars]
+        if (*options.convex_relaxation) {
+          vars[0] = relaxed_phi.at(e->id());
+        } else {
+          vars[0] = e->phi_;
+        }
+        for (int ii = 0; ii < old_vars.size(); ++ii) {
+          vars[ii + 1] = e->x_to_yz_.at(old_vars[ii]);
+        }
+
+        // Note: The use of perspective functions here does not check (nor
+        // assume) that the constraints describe a bounded set.  The boundedness
+        // is ensured by the intersection of these constraints with the convex
+        // sets (on the vertices).
+        AddPerspectiveConstraint(&prog, b, vars);
+      }
+    }
+  }
+
+  RewriteForConvexSolver(&prog);
+
+  MathematicalProgramResult result = Solve(prog, options);
+
+  // CONVEX RESTRICTION VERSION
+  // Add phi vars.
+  int num_excluded_vars = active_edges.size();
+  
+  int count = result.get_x_val().size();
+  Eigen::VectorXd x_val(count + num_excluded_vars);
+  x_val.head(count) = result.get_x_val();
+  std::unordered_map<symbolic::Variable::Id, int> decision_variable_index =
+      prog.decision_variable_index();
+  for (const auto* e : active_edges) {
+    decision_variable_index.emplace(e->phi_.get_id(), count);
+    x_val[count++] = 1.0;
+  }
+
+  result.set_decision_variable_index(decision_variable_index);
+  result.set_x_val(x_val);
+
+  // STANDARD SPP VERSION
+  // Push the placeholder variables and excluded edge variables into the
+  // result, so that they can be accessed as if they were variables included
+  // in the optimization.
+  // int num_placeholder_vars = relaxed_phi.size();
+  // for (const std::pair<const VertexId, std::unique_ptr<Vertex>>& vpair :
+  //       vertices_) {
+  //   num_placeholder_vars += vpair.second->ambient_dimension();
+  //   num_placeholder_vars += vpair.second->ell_.size();
+  // }
+  // for (const Edge* e : excluded_edges) {
+  //   num_placeholder_vars += e->y_.size() + e->z_.size() + e->ell_.size() + 1;
+  // }
+  // num_placeholder_vars += excluded_phi.size();
+  // std::unordered_map<symbolic::Variable::Id, int> decision_variable_index =
+  //     prog.decision_variable_index();
+  // int count = result.get_x_val().size();
+  // Eigen::VectorXd x_val(count + num_placeholder_vars);
+  // x_val.head(count) = result.get_x_val();
+  // for (const Edge* e : excluded_edges) {
+  //   for (int i = 0; i < e->y_.size(); ++i) {
+  //     decision_variable_index.emplace(e->y_[i].get_id(), count);
+  //     x_val[count++] = 0;
+  //   }
+  //   for (int i = 0; i < e->z_.size(); ++i) {
+  //     decision_variable_index.emplace(e->z_[i].get_id(), count);
+  //     x_val[count++] = 0;
+  //   }
+  //   for (int i = 0; i < e->ell_.size(); ++i) {
+  //     decision_variable_index.emplace(e->ell_[i].get_id(), count);
+  //     x_val[count++] = 0;
+  //   }
+  //   decision_variable_index.emplace(e->phi_.get_id(), count);
+  //   x_val[count++] = 0;
+  // }
+  // for (const Variable& phi : excluded_phi) {
+  //   decision_variable_index.emplace(phi.get_id(), count);
+  //   x_val[count++] = 0;
+  // }
+  // for (const std::pair<const VertexId, std::unique_ptr<Vertex>>& vpair :
+  //       vertices_) {
+  //   const Vertex* v = vpair.second.get();
+  //   const bool is_target = (target_ids.find(v->id()) != target_ids.end());
+  //   VectorXd x_v = VectorXd::Zero(v->ambient_dimension());
+  //   double sum_phi = 0;
+  //   if (is_target) {
+  //     sum_phi = 1.0;
+  //     for (const auto& e : incoming_edges[v->id()]) {
+  //       x_v += result.GetSolution(e->z_);
+  //     }
+  //   } else {
+  //     for (const auto& e : outgoing_edges[v->id()]) {
+  //       x_v += result.GetSolution(e->y_);
+  //       sum_phi += result.GetSolution(
+  //           *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_);
+  //     }
+  //   }
+  //   // In the convex relaxation, sum_relaxed_phi may not be one even for
+  //   // vertices in the shortest path. We undo yₑ = ϕₑ xᵤ here to ensure that
+  //   // xᵤ is in v->set(). If ∑ ϕₑ is small enough that numerical errors
+  //   // prevent the projection back into the Xᵤ, then we prefer to return NaN.
+  //   if (sum_phi < 100.0 * std::numeric_limits<double>::epsilon()) {
+  //     x_v = VectorXd::Constant(v->ambient_dimension(),
+  //                               std::numeric_limits<double>::quiet_NaN());
+  //   } else if (*options.convex_relaxation) {
+  //     x_v /= sum_phi;
+  //   }
+  //   for (int i = 0; i < v->ambient_dimension(); ++i) {
+  //     decision_variable_index.emplace(v->x()[i].get_id(), count);
+  //     x_val[count++] = x_v[i];
+  //   }
+  //   for (int ii = 0; ii < v->ell_.size(); ++ii) {
+  //     decision_variable_index.emplace(v->ell_[ii].get_id(), count);
+  //     x_val[count++] =
+  //         result.GetSolution(vertex_edge_ell.at(v->id()).col(ii)).sum();
+  //   }
+  // }
+  // if (*options.convex_relaxation) {
+  //   // Write the value of the relaxed phi into the phi placeholder.
+  //   for (const auto& [edge_id, relaxed_phi_var] : relaxed_phi) {
+  //     decision_variable_index.emplace(edges_.at(edge_id)->phi_.get_id(),
+  //                                     count);
+  //     x_val[count++] = result.GetSolution(relaxed_phi_var);
+  //   }
+  // }
+  // result.set_decision_variable_index(decision_variable_index);
+  // result.set_x_val(x_val);
 
   return result;
 }
