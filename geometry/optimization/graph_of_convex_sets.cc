@@ -1978,7 +1978,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredConvexRestriction(
   MathematicalProgram prog;
 
   // CONVEX RESTRICTION PORTION OF THE GRAPH
-  std::set<const EdgeId> active_edge_ids;
+  std::set<EdgeId> active_edge_ids;
   std::set<const Vertex*, VertexIdComparator> vertices_conv_res;
   bool is_transition_in_active_edges = false;
   for (const auto* e : active_edges) {
