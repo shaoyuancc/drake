@@ -2282,6 +2282,9 @@ class PointsFactored : public ::testing::Test{
     e_p4_p5_->AddCost(solvers::Binding(cost, {e_p4_p5_->xu(), e_p4_p5_->xv()}));
     e_p4_target_b_->AddCost(solvers::Binding(cost, {e_p4_target_b_->xu(), e_p4_target_b_->xv()}));
     e_p5_target_b_->AddCost(solvers::Binding(cost, {e_p5_target_b_->xu(), e_p5_target_b_->xv()}));
+
+    targets = {target_a_, target_b_};
+    active_edges = {e_source_transition_};
   }
 
   GraphOfConvexSets g_;
@@ -2314,11 +2317,12 @@ class PointsFactored : public ::testing::Test{
   Edge* e_p4_p5_{nullptr};
   Edge* e_p4_target_b_{nullptr};
   Edge* e_p5_target_b_{nullptr};
+  std::vector<const Vertex*> targets;
+  std::vector<const Edge*> active_edges;
   GraphOfConvexSetsOptions options_;
 };
 
 TEST_F(PointsFactored, L2NormCost){
-  
   auto result = g_.SolveShortestPath(*source_, *target_a_, options_);
 
   ASSERT_TRUE(result.is_success());
@@ -2332,8 +2336,55 @@ TEST_F(PointsFactored, L2NormCost){
   
 }
 
+TEST_F(PointsFactored, SolveFactoredShortestPathOptions){
+  GraphOfConvexSetsOptions options;
+  options.convex_relaxation = false;
+  options.preprocessing = false;
+
+  auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
+    targets, options);
+
+  ASSERT_TRUE(result.is_success());
+  double tol = 1e-6;
+  EXPECT_NEAR(result.get_optimal_cost(), 9.65685424949238, tol);
+  EXPECT_EQ(result.GetSolution(e_source_p1_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_p1_transition_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_transition_p2_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_transition_p4_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_p2_p3_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_p3_target_a_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_p2_target_a_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_p4_p5_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_p5_target_b_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_p4_target_b_->phi()), 1.);
+}
+
+TEST_F(PointsFactored, SolveFactoredConvexRestrictionOptions){
+  GraphOfConvexSetsOptions options;
+  options.convex_relaxation = false;
+  options.preprocessing = false;
+
+  auto result = g_.SolveFactoredConvexRestriction(active_edges, *transition_,
+    targets, options);
+
+  ASSERT_TRUE(result.is_success());
+  double tol = 1e-6;
+  EXPECT_NEAR(result.get_optimal_cost(), 9.65685424949238, tol);
+  EXPECT_NEAR(result.GetSolution(e_source_p1_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_source_transition_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_p1_transition_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_transition_p2_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_transition_p4_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_p2_p3_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_p3_target_a_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_p2_target_a_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_p4_p5_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_p5_target_b_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_p4_target_b_->phi()), 1., tol);
+}
+
 TEST_F(PointsFactored, SolveFactoredShortestPath){
-  const std::vector<const Vertex*> targets = {target_a_, target_b_};
   auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
     targets, options_);
 
@@ -2354,8 +2405,6 @@ TEST_F(PointsFactored, SolveFactoredShortestPath){
 }
 
 TEST_F(PointsFactored, SolveFactoredConvexRestriction){
-  const std::vector<const Vertex*> targets = {target_a_, target_b_};
-  const std::vector<const Edge*> active_edges = {e_source_transition_};
   auto result = g_.SolveFactoredConvexRestriction(active_edges, *transition_,
     targets, options_);
 

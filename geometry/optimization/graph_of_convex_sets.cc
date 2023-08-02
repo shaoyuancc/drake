@@ -1265,16 +1265,17 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
   // Fill in default options. Note: if these options change, they must also be
   // updated in the method documentation.
   GraphOfConvexSetsOptions options = specified_options;
+
   if (!options.convex_relaxation) {
     options.convex_relaxation = false;
   }
-  else {
+  else if (*options.convex_relaxation){
     throw std::runtime_error("Convex relaxation for SolveFactoredShortestPath not implemented yet.");
   }
   if (!options.preprocessing) {
     options.preprocessing = false;
   }
-  else {
+  else if (*options.preprocessing) {
     throw std::runtime_error("Preprocessing for SolveFactoredShortestPath not implemented yet.");
   }
   if (!options.max_rounded_paths) {
@@ -1962,14 +1963,18 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredConvexRestriction(
   // Fill in default options. Note: if these options change, they must also be
   // updated in the method documentation.
   GraphOfConvexSetsOptions options = specified_options;
+
   if (!options.convex_relaxation) {
     options.convex_relaxation = false;
   }
-  else {
-    throw std::runtime_error("Convex relaxation for SolveFactoredConvexRestriction not implemented yet.");
+  else if (*options.convex_relaxation){
+    throw std::runtime_error("Convex relaxation for SolveFactoredShortestPath not implemented yet.");
   }
   if (!options.preprocessing) {
     options.preprocessing = false;
+  }
+  else if (*options.preprocessing) {
+    throw std::runtime_error("Preprocessing for SolveFactoredShortestPath not implemented yet.");
   }
   if (!options.max_rounded_paths) {
     options.max_rounded_paths = 0;
