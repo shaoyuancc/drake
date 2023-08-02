@@ -2358,6 +2358,18 @@ TEST_F(PointsFactored, SolveFactoredShortestPathOptions){
   EXPECT_EQ(result.GetSolution(e_p4_p5_->phi()), 0.);
   EXPECT_EQ(result.GetSolution(e_p5_target_b_->phi()), 0.);
   EXPECT_EQ(result.GetSolution(e_p4_target_b_->phi()), 1.);
+  const Vector4d a{0., 0., 0., 0.};
+  EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));
+  const Vector4d b{2., 0., 2., 0.};
+  EXPECT_TRUE(CompareMatrices(transition_->GetSolution(result), b, tol));
+  const Vector2d c{3., 1.};
+  EXPECT_TRUE(CompareMatrices(p2_->GetSolution(result), c, tol));
+  const Vector2d d{5., 1.};
+  EXPECT_TRUE(CompareMatrices(target_a_->GetSolution(result), d, tol));
+  const Vector2d e{3., -1.};
+  EXPECT_TRUE(CompareMatrices(p4_->GetSolution(result), e, tol));
+  const Vector2d f{5., -1.};
+  EXPECT_TRUE(CompareMatrices(target_b_->GetSolution(result), f, tol));
 }
 
 TEST_F(PointsFactored, SolveFactoredConvexRestrictionOptions){
@@ -2422,6 +2434,116 @@ TEST_F(PointsFactored, SolveFactoredConvexRestriction){
   EXPECT_NEAR(result.GetSolution(e_p4_p5_->phi()), 0., tol);
   EXPECT_NEAR(result.GetSolution(e_p5_target_b_->phi()), 0., tol);
   EXPECT_NEAR(result.GetSolution(e_p4_target_b_->phi()), 1., tol);
+}
+
+class BoxesFactored : public ::testing::Test{
+  protected:
+    BoxesFactored(){
+      auto source_box = HPolyhedron::MakeBox(Vector4d(-0.5, -0.5, -0.5, -0.5), Vector4d(0.5, 0.5, 0.5, 0.5));
+      auto transition_box = HPolyhedron::MakeBox(Vector4d(1., -1., 1., -1.), Vector4d(2., 1., 2., 1.));
+      auto target_a_box = HPolyhedron::MakeBox(Vector2d(1.5, 2.), Vector2d(2., 2.5));
+      auto target_b_box = HPolyhedron::MakeBox(Vector2d(1.5, -2.5), Vector2d(2., -2.));
+
+      source_ = g_.AddVertex(source_box, "source");
+      transition_ = g_.AddVertex(transition_box, "transition");
+      target_a_ = g_.AddVertex(target_a_box, "target_a");
+      target_b_ = g_.AddVertex(target_b_box, "target_b");
+
+      e_source_transition_ = g_.AddEdge(source_, transition_);
+      e_transition_target_a_ = g_.AddEdge(transition_, target_a_);
+      e_transition_target_b_ = g_.AddEdge(transition_, target_b_);
+
+      // Add costs
+      // |xu - xv|₂
+      Matrix<double, 4, 8> A_hd;
+      A_hd.leftCols(4) = Matrix4d::Identity();
+      A_hd.rightCols(4) = -Matrix4d::Identity();
+      auto cost_hd = std::make_shared<solvers::L2NormCost>(A_hd, Vector4d::Zero());
+      e_source_transition_->AddCost(solvers::Binding(cost_hd, {e_source_transition_->xu(), e_source_transition_->xv()}));
+
+      Matrix<double, 2, 6> A_ta;
+      A_ta.leftCols(2) = Matrix2d::Identity();
+      A_ta.middleCols(2, 2) = Matrix2d::Zero();
+      A_ta.rightCols(2) = -Matrix2d::Identity();
+      auto cost_ta = std::make_shared<solvers::L2NormCost>(A_ta, Vector2d::Zero());
+      e_transition_target_a_->AddCost(solvers::Binding(cost_ta, {e_transition_target_a_->xu(), e_transition_target_a_->xv()}));
+
+      Matrix<double, 2, 6> A_tb;
+      A_tb.leftCols(2) = Matrix2d::Zero();
+      A_tb.middleCols(2, 2) = Matrix2d::Identity();
+      A_tb.rightCols(2) = -Matrix2d::Identity();
+      auto cost_tb = std::make_shared<solvers::L2NormCost>(A_tb, Vector2d::Zero());
+      e_transition_target_b_->AddCost(solvers::Binding(cost_tb, {e_transition_target_b_->xu(), e_transition_target_b_->xv()}));
+
+      // Add constraints
+      // Between source and transition, y value must be the same
+      e_source_transition_->AddConstraint(e_source_transition_->xu()[1] == e_source_transition_->xv()[1]);
+      e_source_transition_->AddConstraint(e_source_transition_->xu()[3] == e_source_transition_->xv()[3]);
+      // Between transition and targets, x value must be the same
+      e_transition_target_a_->AddConstraint(e_transition_target_a_->xu()[0] == e_transition_target_a_->xv()[0]);
+      e_transition_target_b_->AddConstraint(e_transition_target_b_->xu()[2] == e_transition_target_b_->xv()[0]);
+
+      options_.convex_relaxation = false;
+
+      targets = {target_a_, target_b_};
+      active_edges = {e_source_transition_};
+    }
+
+  GraphOfConvexSets g_;
+  Vertex* source_{nullptr};
+  Vertex* transition_{nullptr};
+  Vertex* target_a_{nullptr};
+  Vertex* target_b_{nullptr};
+  Edge* e_source_transition_{nullptr};
+  Edge* e_transition_target_a_{nullptr};
+  Edge* e_transition_target_b_{nullptr};
+  std::vector<const Vertex*> targets;
+  std::vector<const Edge*> active_edges;
+  GraphOfConvexSetsOptions options_;
+};
+
+TEST_F(BoxesFactored, StandardShortestPath){
+  auto result = g_.SolveShortestPath(*source_, *target_a_, options_);
+
+  ASSERT_TRUE(result.is_success());
+  double tol = 1e-6;
+  EXPECT_NEAR(result.get_optimal_cost(), 2.618033988749895, tol);
+  EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 1.118033988749895, tol);
+  EXPECT_NEAR(e_transition_target_a_->GetSolutionCost(result), 1.5, tol);
+  EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_transition_target_a_->phi()), 1.);
+
+  const Vector4d a{0.5, 0.5, 0.5, -0.5};
+  EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));
+  const Vector4d b{1.5, 0.5, 1, -0.5};
+  EXPECT_TRUE(CompareMatrices(transition_->GetSolution(result), b, tol));
+  const Vector2d c{1.5, 2.};
+  EXPECT_TRUE(CompareMatrices(target_a_->GetSolution(result), c, tol));
+}
+
+TEST_F(BoxesFactored, TransitionEdgeConstraints){
+  auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
+    targets, options_);
+
+  ASSERT_TRUE(result.is_success());
+  double tol = 1e-6;
+  
+  EXPECT_NEAR(result.get_optimal_cost(), 5.23606797749979, tol);
+  EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_transition_target_a_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_transition_target_b_->phi()), 1.);
+  EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 2.23606797749979, tol);
+  EXPECT_NEAR(e_transition_target_a_->GetSolutionCost(result), 1.5, tol);
+  EXPECT_NEAR(e_transition_target_b_->GetSolutionCost(result), 1.5, tol);
+  
+  const Vector4d a{0.5, 0.5, -0.5, -0.5};
+  EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));
+  const Vector4d b{1.5, 0.5, 1.5, -0.5};
+  EXPECT_TRUE(CompareMatrices(transition_->GetSolution(result), b, tol));
+  const Vector2d c{1.5, 2.};
+  EXPECT_TRUE(CompareMatrices(target_a_->GetSolution(result), c, tol));
+  const Vector2d d{1.5, -2.};
+  EXPECT_TRUE(CompareMatrices(target_b_->GetSolution(result), d, tol));
 }
 
 #pragma GCC diagnostic pop
