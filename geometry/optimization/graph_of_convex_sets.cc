@@ -1477,12 +1477,14 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
         RowVectorXd a_in(incoming.size() + outgoing.size());
         a_in << RowVectorXd::Ones(incoming.size()),
                 RowVectorXd::Zero(outgoing.size());
-        prog.AddLinearEqualityConstraint(a_in, 1.0, vars);
+        prog.AddLinearEqualityConstraint(a_in, 1.0, vars)
+          .evaluator()->set_description("transition ∑ ϕ_in = 1");
         // ϕ_out = 1, ∀ outgoing edges
         for (const Edge* e : outgoing) {
           Variable phi =
               *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
-          prog.AddBoundingBoxConstraint(1.0, 1.0, phi);
+          prog.AddBoundingBoxConstraint(1.0, 1.0, phi)
+            .evaluator()->set_description("transition ϕ_out = 1, ∀ outgoing edges");
         }
         
       }
@@ -1492,8 +1494,18 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
             a, (is_source ? 1.0 : 0.0) - (is_target ? 1.0 : 0.0), vars);
       } 
 
+      if (is_transition) {
+        for (int i=1; i<ssize(incoming); ++i) {
+          prog.AddLinearEqualityConstraint(incoming[i]->z_ == incoming[0]->z_)
+            .evaluator()->set_description("transition z_in's are all equal");
+        }
+        for (const Edge* e : outgoing) {
+          prog.AddLinearEqualityConstraint(e->y_ == incoming[0]->z_)
+            .evaluator()->set_description("transition y_outs = z_ins");
+        }
+      }
       // Spatial conservation of flow: ∑ z_in = ∑ y_out.
-      if (!is_source && !is_target && !is_transition) {
+      else if (!is_source && !is_target) {
         for (int i = 0; i < v->ambient_dimension(); ++i) {
           count = 0;
           for (const Edge* e : incoming) {
@@ -1504,7 +1516,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
           }
           prog.AddLinearEqualityConstraint(a, 0, vars);
         }
-      }
+      } 
     }
 
     if (outgoing.size() > 0) {
@@ -1523,7 +1535,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
                                is_target ? 0.0 : 1.0, phi_out);
       }
 
-      if (!is_source && !is_target && !is_transition) {
+      if (!is_source && !is_target) {
         RowVectorXd a = RowVectorXd::Ones(outgoing.size());
         MatrixXd A_yz(n_v, outgoing.size() * n_v);
         for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
@@ -1628,6 +1640,11 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
       result.get_solver_id().name(), *options.convex_relaxation,
       *options.preprocessing,
       *options.max_rounded_paths > 0 ? " and rounding" : " and no rounding");
+
+  auto infeasible_constraint_names = result.GetInfeasibleConstraintNames(prog);
+  for (const auto& name : infeasible_constraint_names){
+    log()->warn("Infeasible constraint: {}", name);
+  }
 
   
   // Push the placeholder variables and excluded edge variables into the
