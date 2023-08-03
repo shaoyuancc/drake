@@ -1660,7 +1660,8 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
   for (const std::pair<const VertexId, std::unique_ptr<Vertex>>& vpair :
         vertices_) {
     const Vertex* v = vpair.second.get();
-    const bool is_target = (target_ids.find(v->id()) != target_ids.end());
+    const bool is_target = (target_ids.count(v->id()));
+    const bool is_transition = (transition_id == v->id());
     VectorXd x_v = VectorXd::Zero(v->ambient_dimension());
     double sum_phi = 0;
     if (is_target) {
@@ -1668,7 +1669,14 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
       for (const auto& e : incoming_edges[v->id()]) {
         x_v += result.GetSolution(e->z_);
       }
-    } else {
+    } 
+    else if (is_transition) {
+      sum_phi = 1.0;
+      for (const auto& e : incoming_edges[v->id()]) {
+        x_v += result.GetSolution(e->z_);
+      }
+    }
+    else {
       for (const auto& e : outgoing_edges[v->id()]) {
         x_v += result.GetSolution(e->y_);
         sum_phi += result.GetSolution(
