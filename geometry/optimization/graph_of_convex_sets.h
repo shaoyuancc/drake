@@ -561,6 +561,7 @@ class GraphOfConvexSets {
   solvers::MathematicalProgramResult SolveFactoredShortestPath(
       const Vertex& source, const Vertex& transition,
       const std::vector<const Vertex*>& targets,
+      const std::vector<const Vertex*>& factored,
       const GraphOfConvexSetsOptions& options =
           GraphOfConvexSetsOptions()) const;
 

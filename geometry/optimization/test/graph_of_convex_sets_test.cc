@@ -2284,6 +2284,7 @@ class PointsFactored : public ::testing::Test{
     e_p5_target_b_->AddCost(solvers::Binding(cost, {e_p5_target_b_->xu(), e_p5_target_b_->xv()}));
 
     targets = {target_a_, target_b_};
+    factored = {p2_, p3_, target_a_, p4_, p5_, target_b_};
     active_edges = {e_source_transition_};
   }
 
@@ -2318,6 +2319,7 @@ class PointsFactored : public ::testing::Test{
   Edge* e_p4_target_b_{nullptr};
   Edge* e_p5_target_b_{nullptr};
   std::vector<const Vertex*> targets;
+  std::vector<const Vertex*> factored;
   std::vector<const Edge*> active_edges;
   GraphOfConvexSetsOptions options_;
 };
@@ -2342,7 +2344,7 @@ TEST_F(PointsFactored, SolveFactoredShortestPathOptions){
   options.preprocessing = false;
 
   auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
-    targets, options);
+    targets, factored, options);
 
   ASSERT_TRUE(result.is_success());
   double tol = 1e-6;
@@ -2398,7 +2400,7 @@ TEST_F(PointsFactored, SolveFactoredConvexRestrictionOptions){
 
 TEST_F(PointsFactored, SolveFactoredShortestPath){
   auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
-    targets, options_);
+    targets, factored, options_);
 
   ASSERT_TRUE(result.is_success());
   double tol = 1e-6;
@@ -2449,9 +2451,9 @@ class BoxesFactored : public ::testing::Test{
       target_a_ = g_.AddVertex(target_a_box, "target_a");
       target_b_ = g_.AddVertex(target_b_box, "target_b");
 
-      e_source_transition_ = g_.AddEdge(source_, transition_);
-      e_transition_target_a_ = g_.AddEdge(transition_, target_a_);
-      e_transition_target_b_ = g_.AddEdge(transition_, target_b_);
+      e_source_transition_ = g_.AddEdge(source_, transition_, "e_source_transition");
+      e_transition_target_a_ = g_.AddEdge(transition_, target_a_, "e_transition_target_a");
+      e_transition_target_b_ = g_.AddEdge(transition_, target_b_, "e_transition_target_b");
 
       // Add costs
       // |xu - xv|₂
@@ -2486,6 +2488,7 @@ class BoxesFactored : public ::testing::Test{
       options_.convex_relaxation = false;
 
       targets = {target_a_, target_b_};
+      factored = {target_a_, target_b_};
       active_edges = {e_source_transition_};
     }
 
@@ -2498,6 +2501,7 @@ class BoxesFactored : public ::testing::Test{
   Edge* e_transition_target_a_{nullptr};
   Edge* e_transition_target_b_{nullptr};
   std::vector<const Vertex*> targets;
+  std::vector<const Vertex*> factored;
   std::vector<const Edge*> active_edges;
   GraphOfConvexSetsOptions options_;
 };
@@ -2523,7 +2527,7 @@ TEST_F(BoxesFactored, StandardShortestPath){
 
 TEST_F(BoxesFactored, TransitionEdgeConstraints){
   auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
-    targets, options_);
+    targets, factored, options_);
 
   ASSERT_TRUE(result.is_success());
   double tol = 1e-6;

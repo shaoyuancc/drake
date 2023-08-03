@@ -1231,6 +1231,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveShortestPath(
 MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
     const Vertex& source, const Vertex& transition,
     const std::vector<const Vertex*>& targets,
+    const std::vector<const Vertex*>& factored,
     const GraphOfConvexSetsOptions& specified_options) const {
   VertexId source_id = source.id();
   if (vertices_.find(source_id) == vertices_.end()) {
@@ -1252,14 +1253,33 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
         "specified. They need to be equal.",
         transition.id(), transition.outgoing_edges().size(), targets.size()));
   }
+  
+  const double factored_flow = 1.0 / targets.size();
+  bool has_edges_out_of_source = false;
+  bool has_edges_into_transition = false;
+  std::map<VertexId, bool> has_edges_into_targets;
+  std::set<VertexId> target_ids;
+  std::set<VertexId> factored_ids;
 
   for (const auto* target : targets) {
     VertexId target_id = target->id();
     if (vertices_.find(target_id) == vertices_.end()) {
       throw std::runtime_error(fmt::format(
           "Target vertex {} is not a vertex in this GraphOfConvexSets.",
-          target_id));
+          target->name()));
     }
+    target_ids.insert(target_id);
+    has_edges_into_targets[target_id] = false;
+  }
+
+  for (const auto* factored_v : factored) {
+    VertexId factored_id = factored_v->id();
+    if (vertices_.find(factored_id) == vertices_.end()) {
+      throw std::runtime_error(fmt::format(
+          "Factored vertex {} is not a vertex in this GraphOfConvexSets.",
+          factored_v->name()));
+    }
+    factored_ids.insert(factored_id);
   }
 
   // Fill in default options. Note: if these options change, they must also be
@@ -1297,14 +1317,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
 
   // The flow constraints below assume that we have some edge out of the source
   // and into the target, so we handle that case explicitly.
-  bool has_edges_out_of_source = false;
-  bool has_edges_into_transition = false;
-  std::map<VertexId, bool> has_edges_into_targets;
-  std::set<VertexId> target_ids;
-  for (const auto* target : targets) {
-    target_ids.insert(target->id());
-    has_edges_into_targets[target->id()] = false;
-  }
+  
 
   for (const auto& [edge_id, e] : edges_) {
     // If an edge is turned off (ϕ = 0) or excluded by preprocessing, don't
@@ -1319,6 +1332,9 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
       }
       continue;
     }
+    const bool is_factored = factored_ids.count(e->u().id());
+    const bool is_transition_outgoing = (transition_id == e->u().id());
+
     if (e->u().id() == source_id) {
       has_edges_out_of_source = true;
     }
@@ -1335,15 +1351,23 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
     Variable phi;
     if (*options.convex_relaxation) {
       phi = prog.NewContinuousVariables<1>("phi")[0];
-      prog.AddBoundingBoxConstraint(0, 1, phi);
+      prog.AddBoundingBoxConstraint(0, is_factored ? factored_flow : 1.0, phi);
       relaxed_phi.emplace(edge_id, phi);
     } else {
       phi = e->phi_;
       prog.AddDecisionVariables(Vector1<Variable>(phi));
     }
-    if (e->phi_value_.has_value()) {
+    if (is_transition_outgoing) {
+      // Transition vertex: ϕ = factored_flow.
+      // Flow is split evenly between outgoing edges
+      // This overrides anything that is set with phi_value.
+      prog.AddBoundingBoxConstraint(factored_flow, factored_flow, phi)
+        .evaluator()->set_description("Transition outgoing edge ϕ = factored_flow");
+    }
+    else if (e->phi_value_.has_value()) {
       DRAKE_DEMAND(*e->phi_value_);
       double phi_value = *e->phi_value_ ? 1.0 : 0.0;
+      phi_value = is_factored ? factored_flow * phi_value : phi_value;
       prog.AddBoundingBoxConstraint(phi_value, phi_value, phi);
     }
     prog.AddDecisionVariables(e->y_);
@@ -1417,8 +1441,9 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
        vertices_) {
     const Vertex* v = vpair.second.get();
     const bool is_source = (source_id == v->id());
-    const bool is_transition = (transition_id == v->id());
-    const bool is_target = (target_ids.find(v->id()) != target_ids.end());
+    const bool is_factored = (factored_ids.count(v->id()));
+    // const bool is_transition = (transition_id == v->id());
+    const bool is_target = (target_ids.count(v->id()));
 
     const std::vector<Edge*>& incoming = incoming_edges[v->id()];
     const std::vector<Edge*>& outgoing = outgoing_edges[v->id()];
@@ -1434,6 +1459,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
       a << RowVectorXd::Constant(incoming.size(), -1.0),
           RowVectorXd::Ones(outgoing.size());
 
+      // Conservation of flow: ∑ ϕ_out - ∑ ϕ_in = δ(is_source) - δ(is_target) * factored_flow.
       int count = 0;
       for (const Edge* e : incoming) {
         vars[count++] =
@@ -1443,29 +1469,13 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
         vars[count++] =
             *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
       }
-      if (is_transition){
-        // For transition vertex, flow constraints are as follows:
-        // ∑ ϕ_in = 1
-        RowVectorXd a_in(incoming.size() + outgoing.size());
-        a_in << RowVectorXd::Ones(incoming.size()),
-                RowVectorXd::Zero(outgoing.size());
-        prog.AddLinearEqualityConstraint(a_in, 1.0, vars);
-        // ϕ_out = 1, ∀ outgoing edges
-        for (const Edge* e : outgoing) {
-          Variable phi =
-              *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
-          prog.AddBoundingBoxConstraint(1.0, 1.0, phi);
-        }
-        
-      }
-      else {
-        // Conservation of flow: ∑ ϕ_out - ∑ ϕ_in = δ(is_source) - δ(is_target).
-        prog.AddLinearEqualityConstraint(
-            a, (is_source ? 1.0 : 0.0) - (is_target ? 1.0 : 0.0), vars);
-      } 
+      prog.AddLinearEqualityConstraint(
+            a, (is_source ? 1.0 : 0.0) - (is_target ? factored_flow : 0.0), vars
+          ).evaluator()->set_description(fmt::format("{} Conservation of flow", v->name()));
+      
 
       // Spatial conservation of flow: ∑ z_in = ∑ y_out.
-      if (!is_source && !is_target && !is_transition) {
+      if (!is_source && !is_target) {
         for (int i = 0; i < v->ambient_dimension(); ++i) {
           count = 0;
           for (const Edge* e : incoming) {
@@ -1474,7 +1484,9 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
           for (const Edge* e : outgoing) {
             vars[count++] = e->y_[i];
           }
-          prog.AddLinearEqualityConstraint(a, 0, vars);
+          prog.AddLinearEqualityConstraint(
+              a, 0, vars
+            ).evaluator()->set_description(fmt::format("{} Spatial conservation of flow", v->name()));
         }
       }
     }
@@ -1489,13 +1501,20 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
                          : outgoing[i]->phi_;
         yz_out.segment(i * n_v, n_v) = outgoing[i]->y_;
       }
-      if (!is_transition){
-        // Degree constraint: ∑ ϕ_out <= 1- δ(is_target).
+      if (is_target){
+        // Degree constraint: ∑ ϕ_out == 0.
         prog.AddLinearConstraint(RowVectorXd::Ones(outgoing.size()), 0.0,
-                               is_target ? 0.0 : 1.0, phi_out);
+                               0.0, phi_out)
+                               .evaluator()->set_description(fmt::format("{} Degree constraint", v->name()));
+      }
+      else{
+        // Degree constraint: ∑ ϕ_out <= 1 OR factored_flow.
+        prog.AddLinearConstraint(RowVectorXd::Ones(outgoing.size()), 0.0,
+                               is_factored ? factored_flow : 1.0, phi_out)
+                               .evaluator()->set_description(fmt::format("{} Degree constraint", v->name()));
       }
 
-      if (!is_source && !is_target && !is_transition) {
+      if (!is_source && !is_target) {
         RowVectorXd a = RowVectorXd::Ones(outgoing.size());
         MatrixXd A_yz(n_v, outgoing.size() * n_v);
         for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
@@ -1504,8 +1523,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
         for (int i = 0; i < static_cast<int>(outgoing.size()); ++i) {
           const Edge* e_out = outgoing[i];
           if (source_id == e_out->v().id() ||
-              transition_id == e_out->v().id() ||
-              target_ids.find(e_out->v().id()) != target_ids.end()) {
+              target_ids.count(e_out->v().id())) {
             continue;
           }
           for (const Edge* e_in : incoming) {
@@ -1515,7 +1533,9 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
                                ? relaxed_phi.at(e_in->id())
                                : e_in->phi_;
               // Two-cycle constraint: ∑ ϕ_u,out - ϕ_uv - ϕ_vu >= 0
-              prog.AddLinearConstraint(a, 0.0, 1.0, phi_out);
+              prog.AddLinearConstraint(a, 0.0, 1.0, phi_out)
+                  .evaluator()
+                  ->set_description(fmt::format("{} Two-cycle constraint", e_in->name()));
               A_yz.block(0, i * n_v, n_v, n_v) = -MatrixXd::Identity(n_v, n_v);
               yz_out.segment(i * n_v, n_v) = e_in->z_;
               // Two-cycle spatial constraint:
@@ -1600,6 +1620,16 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
       result.get_solver_id().name(), *options.convex_relaxation,
       *options.preprocessing,
       *options.max_rounded_paths > 0 ? " and rounding" : " and no rounding");
+  
+  auto infeasible_constraint_names = result.GetInfeasibleConstraintNames(prog);
+  for (const auto& name : infeasible_constraint_names){
+    log()->warn("Infeasible constraint: {}", name);
+  }
+  if (!result.is_success()) {
+    log()->info(prog);
+  }
+
+  
 
   
   // Push the placeholder variables and excluded edge variables into the
@@ -1647,7 +1677,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
     VectorXd x_v = VectorXd::Zero(v->ambient_dimension());
     double sum_phi = 0;
     if (is_target) {
-      sum_phi = 1.0;
+      sum_phi = factored_flow;
       for (const auto& e : incoming_edges[v->id()]) {
         x_v += result.GetSolution(e->z_);
       }
