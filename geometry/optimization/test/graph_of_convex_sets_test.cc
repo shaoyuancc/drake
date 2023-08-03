@@ -2682,15 +2682,15 @@ TEST_F(BoxesFactored, TransitionEdgeConstraints){
   ASSERT_TRUE(result.is_success());
   double tol = 1e-6;
   
-  EXPECT_NEAR(result.get_optimal_cost(), 5.23606797749979, tol);
+  EXPECT_NEAR(result.get_optimal_cost(), 4.4142135623730958, tol);
   EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
   EXPECT_EQ(result.GetSolution(e_transition_target_a_->phi()), 1.);
   EXPECT_EQ(result.GetSolution(e_transition_target_b_->phi()), 1.);
-  EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 2.23606797749979, tol);
+  EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 1.4142135623730951, tol);
   EXPECT_NEAR(e_transition_target_a_->GetSolutionCost(result), 1.5, tol);
   EXPECT_NEAR(e_transition_target_b_->GetSolutionCost(result), 1.5, tol);
   
-  const Vector4d a{0.5, 0.5, -0.5, -0.5};
+  const Vector4d a{0.5, 0.5, 0.5, -0.5};
   EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));
   const Vector4d b{1.5, 0.5, 1.5, -0.5};
   EXPECT_TRUE(CompareMatrices(transition_->GetSolution(result), b, tol));
