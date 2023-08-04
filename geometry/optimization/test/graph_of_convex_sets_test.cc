@@ -2380,15 +2380,15 @@ class PointsFactored : public ::testing::Test{
         p_p5_{Vector2d(4., 0.)},
         p_target_b_{Vector2d(5., -1.)} {
     // Add Vertices
-    source_ = g_.AddVertex(p_source_);
-    p1_ = g_.AddVertex(p_p1_);
-    transition_ = g_.AddVertex(p_transition_);
-    p2_ = g_.AddVertex(p_p2_);
-    p3_ = g_.AddVertex(p_p3_);
-    target_a_ = g_.AddVertex(p_target_a_);
-    p4_ = g_.AddVertex(p_p4_);
-    p5_ = g_.AddVertex(p_p5_);
-    target_b_ = g_.AddVertex(p_target_b_);
+    source_ = g_.AddVertex(p_source_, "source");
+    p1_ = g_.AddVertex(p_p1_, "p1");
+    transition_ = g_.AddVertex(p_transition_, "transition");
+    p2_ = g_.AddVertex(p_p2_, "p2");
+    p3_ = g_.AddVertex(p_p3_, "p3");
+    target_a_ = g_.AddVertex(p_target_a_, "target_a");
+    p4_ = g_.AddVertex(p_p4_, "p4");
+    p5_ = g_.AddVertex(p_p5_, "p5");
+    target_b_ = g_.AddVertex(p_target_b_, "target_b");
     // Add Edges
     e_source_p1_ = g_.AddEdge(source_, p1_);
     e_p1_transition_ = g_.AddEdge(p1_, transition_);
@@ -2590,9 +2590,9 @@ TEST_F(PointsFactored, SolveFactoredConvexRestriction){
   EXPECT_NEAR(result.GetSolution(e_p4_target_b_->phi()), 1., tol);
 }
 
-class BoxesFactored : public ::testing::Test{
+class BoxesFactoredSimple : public ::testing::Test{
   protected:
-    BoxesFactored(){
+    BoxesFactoredSimple(){
       auto source_box = HPolyhedron::MakeBox(Vector4d(-0.5, -0.5, -0.5, -0.5), Vector4d(0.5, 0.5, 0.5, 0.5));
       auto transition_box = HPolyhedron::MakeBox(Vector4d(1., -1., 1., -1.), Vector4d(2., 1., 2., 1.));
       auto target_a_box = HPolyhedron::MakeBox(Vector2d(1.5, 2.), Vector2d(2., 2.5));
@@ -2656,7 +2656,7 @@ class BoxesFactored : public ::testing::Test{
   GraphOfConvexSetsOptions options_;
 };
 
-TEST_F(BoxesFactored, StandardShortestPath){
+TEST_F(BoxesFactoredSimple, StandardShortestPath){
   auto result = g_.SolveShortestPath(*source_, *target_a_, options_);
 
   ASSERT_TRUE(result.is_success());
@@ -2675,7 +2675,7 @@ TEST_F(BoxesFactored, StandardShortestPath){
   EXPECT_TRUE(CompareMatrices(target_a_->GetSolution(result), c, tol));
 }
 
-TEST_F(BoxesFactored, TransitionEdgeConstraints){
+TEST_F(BoxesFactoredSimple, TransitionEdgeConstraints){
   auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
     targets, options_);
 
@@ -2689,6 +2689,149 @@ TEST_F(BoxesFactored, TransitionEdgeConstraints){
   EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 1.4142135623730951, tol);
   EXPECT_NEAR(e_transition_target_a_->GetSolutionCost(result), 1.5, tol);
   EXPECT_NEAR(e_transition_target_b_->GetSolutionCost(result), 1.5, tol);
+  
+  const Vector4d a{0.5, 0.5, 0.5, -0.5};
+  EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));
+  const Vector4d b{1.5, 0.5, 1.5, -0.5};
+  EXPECT_TRUE(CompareMatrices(transition_->GetSolution(result), b, tol));
+  const Vector2d c{1.5, 2.};
+  EXPECT_TRUE(CompareMatrices(target_a_->GetSolution(result), c, tol));
+  const Vector2d d{1.5, -2.};
+  EXPECT_TRUE(CompareMatrices(target_b_->GetSolution(result), d, tol));
+}
+
+class BoxesFactored : public ::testing::Test{
+  protected:
+    BoxesFactored(){
+      auto source_box = HPolyhedron::MakeBox(Vector4d(-0.5, -0.5, -0.5, -0.5), Vector4d(0.5, 0.5, 0.5, 0.5));
+      auto decoy_box = HPolyhedron::MakeBox(Vector4d(-2, -2, 2, 2), Vector4d(-1, -1, 3, 3));
+      auto transition_box = HPolyhedron::MakeBox(Vector4d(1., -1., 1., -1.), Vector4d(2., 1., 2., 1.));
+      auto inter_a_box = HPolyhedron::MakeBox(Vector2d(1, 1.1), Vector2d(2, 1.2));
+      auto decoy_a_box = HPolyhedron::MakeBox(Vector2d(1, 4), Vector2d(2., 5));
+      auto target_a_box = HPolyhedron::MakeBox(Vector2d(1.5, 2.), Vector2d(2., 2.5));
+      auto inter_b_box = HPolyhedron::MakeBox(Vector2d(1, -1.2), Vector2d(2, -1.1));
+      auto decoy_b_box = HPolyhedron::MakeBox(Vector2d(1, -5), Vector2d(2., -4));
+      auto target_b_box = HPolyhedron::MakeBox(Vector2d(1.5, -2.5), Vector2d(2., -2.));
+
+      source_ = g_.AddVertex(source_box, "source");
+      decoy_ = g_.AddVertex(decoy_box, "decoy");
+      transition_ = g_.AddVertex(transition_box, "transition");
+      inter_a_ = g_.AddVertex(inter_a_box, "inter_a");
+      decoy_a_ = g_.AddVertex(decoy_a_box, "decoy_a");
+      target_a_ = g_.AddVertex(target_a_box, "target_a");
+      inter_b_ = g_.AddVertex(inter_b_box, "inter_b");
+      decoy_b_ = g_.AddVertex(decoy_b_box, "decoy_b");
+      target_b_ = g_.AddVertex(target_b_box, "target_b");
+
+      e_source_decoy_ = g_.AddEdge(source_, decoy_, "e_source_decoy");
+      e_decoy_transition_ = g_.AddEdge(decoy_, transition_, "e_decoy_transition");
+      e_source_transition_ = g_.AddEdge(source_, transition_, "e_source_transition");
+      e_transition_inter_a_ = g_.AddEdge(transition_, inter_a_, "e_transition_inter_a");
+      e_inter_a_decoy_a_ = g_.AddEdge(inter_a_, decoy_a_, "e_inter_a_decoy_a");
+      e_decoy_a_target_a_ = g_.AddEdge(decoy_a_, target_a_, "e_decoy_a_target_a");
+      e_inter_a_target_a_ = g_.AddEdge(inter_a_, target_a_, "e_inter_a_target_a");
+      e_transition_inter_b_ = g_.AddEdge(transition_, inter_b_, "e_transition_inter_b");
+      e_inter_b_decoy_b_ = g_.AddEdge(inter_b_, decoy_b_, "e_inter_b_decoy_b");
+      e_decoy_b_target_b_ = g_.AddEdge(decoy_b_, target_b_, "e_decoy_b_target_b");
+      e_inter_b_target_b_ = g_.AddEdge(inter_b_, target_b_, "e_inter_b_target_b");
+
+      // Add costs
+      // |xu - xv|₂
+      Matrix<double, 4, 8> A_hd;
+      A_hd.leftCols(4) = Matrix4d::Identity();
+      A_hd.rightCols(4) = -Matrix4d::Identity();
+      auto cost_hd = std::make_shared<solvers::L2NormCost>(A_hd, Vector4d::Zero());
+      e_source_transition_->AddCost(solvers::Binding(cost_hd, {e_source_transition_->xu(), e_source_transition_->xv()}));
+      e_source_decoy_->AddCost(solvers::Binding(cost_hd, {e_source_decoy_->xu(), e_source_decoy_->xv()}));
+      e_decoy_transition_->AddCost(solvers::Binding(cost_hd, {e_decoy_transition_->xu(), e_decoy_transition_->xv()}));
+
+      Matrix<double, 2, 6> A_ta;
+      A_ta.leftCols(2) = Matrix2d::Identity();
+      A_ta.middleCols(2, 2) = Matrix2d::Zero();
+      A_ta.rightCols(2) = -Matrix2d::Identity();
+      auto cost_ta = std::make_shared<solvers::L2NormCost>(A_ta, Vector2d::Zero());
+      e_transition_inter_a_->AddCost(solvers::Binding(cost_ta, {e_transition_inter_a_->xu(), e_transition_inter_a_->xv()}));
+
+      Matrix<double, 2, 6> A_tb;
+      A_tb.leftCols(2) = Matrix2d::Zero();
+      A_tb.middleCols(2, 2) = Matrix2d::Identity();
+      A_tb.rightCols(2) = -Matrix2d::Identity();
+      auto cost_tb = std::make_shared<solvers::L2NormCost>(A_tb, Vector2d::Zero());
+      e_transition_inter_b_->AddCost(solvers::Binding(cost_tb, {e_transition_inter_b_->xu(), e_transition_inter_b_->xv()}));
+
+      Matrix<double, 2, 4> A_ld;
+      A_ld.leftCols(2) = Matrix2d::Identity();
+      A_ld.rightCols(2) = -Matrix2d::Identity();
+      auto cost_ld = std::make_shared<solvers::L2NormCost>(A_ld, Vector2d::Zero());
+      e_inter_a_decoy_a_->AddCost(solvers::Binding(cost_ld, {e_inter_a_decoy_a_->xu(), e_inter_a_decoy_a_->xv()}));
+      e_inter_b_decoy_b_->AddCost(solvers::Binding(cost_ld, {e_inter_b_decoy_b_->xu(), e_inter_b_decoy_b_->xv()}));
+      e_decoy_a_target_a_->AddCost(solvers::Binding(cost_ld, {e_decoy_a_target_a_->xu(), e_decoy_a_target_a_->xv()}));
+      e_decoy_b_target_b_->AddCost(solvers::Binding(cost_ld, {e_decoy_b_target_b_->xu(), e_decoy_b_target_b_->xv()}));
+      e_inter_a_target_a_->AddCost(solvers::Binding(cost_ld, {e_inter_a_target_a_->xu(), e_inter_a_target_a_->xv()}));
+      e_inter_b_target_b_->AddCost(solvers::Binding(cost_ld, {e_inter_b_target_b_->xu(), e_inter_b_target_b_->xv()}));
+
+      // Add constraints
+      // Between source and transition, y value must be the same
+      e_source_transition_->AddConstraint(e_source_transition_->xu()[1] == e_source_transition_->xv()[1]);
+      e_source_transition_->AddConstraint(e_source_transition_->xu()[3] == e_source_transition_->xv()[3]);
+      // Between transition and inter and targets, x value must be the same
+      e_transition_inter_a_->AddConstraint(e_transition_inter_a_->xu()[0] == e_transition_inter_a_->xv()[0]);
+      e_transition_inter_b_->AddConstraint(e_transition_inter_b_->xu()[2] == e_transition_inter_b_->xv()[0]);
+      e_inter_a_target_a_->AddConstraint(e_inter_a_target_a_->xu()[0] == e_inter_a_target_a_->xv()[0]);
+      e_inter_b_target_b_->AddConstraint(e_inter_b_target_b_->xu()[0] == e_inter_b_target_b_->xv()[0]);
+
+      options_.convex_relaxation = false;
+
+      targets = {target_a_, target_b_};
+      active_edges = {e_source_transition_};
+    }
+
+  GraphOfConvexSets g_;
+  Vertex* source_{nullptr};
+  Vertex* decoy_{nullptr};
+  Vertex* transition_{nullptr};
+  Vertex* inter_a_{nullptr};
+  Vertex* inter_b_{nullptr};
+  Vertex* decoy_a_{nullptr};
+  Vertex* decoy_b_{nullptr};
+  Vertex* target_a_{nullptr};
+  Vertex* target_b_{nullptr};
+  Edge* e_source_transition_{nullptr};
+  Edge* e_source_decoy_{nullptr};
+  Edge* e_decoy_transition_{nullptr};
+  Edge* e_transition_inter_a_{nullptr};
+  Edge* e_transition_inter_b_{nullptr};
+  Edge* e_inter_a_decoy_a_{nullptr};
+  Edge* e_inter_b_decoy_b_{nullptr};
+  Edge* e_decoy_a_target_a_{nullptr};
+  Edge* e_decoy_b_target_b_{nullptr};
+  Edge* e_inter_a_target_a_{nullptr};
+  Edge* e_inter_b_target_b_{nullptr};
+  std::vector<const Vertex*> targets;
+  std::vector<const Edge*> active_edges;
+  GraphOfConvexSetsOptions options_;
+};
+
+TEST_F(BoxesFactored, TransitionEdgeConstraints){
+  auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
+    targets, options_);
+
+  ASSERT_TRUE(result.is_success());
+  double tol = 1e-6;
+  
+  EXPECT_NEAR(result.get_optimal_cost(), 4.4142135623730958, tol);
+  EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_transition_inter_a_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_inter_a_target_a_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_transition_inter_b_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_inter_b_target_b_->phi()), 1.);
+  EXPECT_EQ(result.GetSolution(e_inter_a_decoy_a_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_inter_b_decoy_b_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_decoy_a_target_a_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_decoy_b_target_b_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_source_decoy_->phi()), 0.);
+  EXPECT_EQ(result.GetSolution(e_decoy_transition_->phi()), 0.);
+  EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 1.4142135623730951, tol);
   
   const Vector4d a{0.5, 0.5, 0.5, -0.5};
   EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));

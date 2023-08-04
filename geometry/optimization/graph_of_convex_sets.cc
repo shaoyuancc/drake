@@ -1484,14 +1484,15 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
           Variable phi =
               *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
           prog.AddBoundingBoxConstraint(1.0, 1.0, phi)
-            .evaluator()->set_description("transition ϕ_out = 1, ∀ outgoing edges");
+            .evaluator()->set_description(fmt::format("{} ϕ = 1", e->name()));
         }
         
       }
       else {
         // Conservation of flow: ∑ ϕ_out - ∑ ϕ_in = δ(is_source) - δ(is_target).
         prog.AddLinearEqualityConstraint(
-            a, (is_source ? 1.0 : 0.0) - (is_target ? 1.0 : 0.0), vars);
+            a, (is_source ? 1.0 : 0.0) - (is_target ? 1.0 : 0.0), vars)
+          .evaluator()->set_description(fmt::format("{} conservation of flow", v->name()));
       } 
 
       if (is_transition) {
@@ -1504,7 +1505,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
             .evaluator()->set_description("transition y_outs = z_ins");
         }
       }
-      // Spatial conservation of flow: ∑ z_in = ∑ y_out.
+      // Spatial conservation of flow: ∑ z_in = ∑ y_out (for each ambient dimension).
       else if (!is_source && !is_target) {
         for (int i = 0; i < v->ambient_dimension(); ++i) {
           count = 0;
@@ -1514,7 +1515,8 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
           for (const Edge* e : outgoing) {
             vars[count++] = e->y_[i];
           }
-          prog.AddLinearEqualityConstraint(a, 0, vars);
+          prog.AddLinearEqualityConstraint(a, 0, vars)
+            .evaluator()->set_description(fmt::format("{} spatial conservation of flow", v->name()));
         }
       } 
     }
@@ -1532,7 +1534,8 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
       if (!is_transition){
         // Degree constraint: ∑ ϕ_out <= 1- δ(is_target).
         prog.AddLinearConstraint(RowVectorXd::Ones(outgoing.size()), 0.0,
-                               is_target ? 0.0 : 1.0, phi_out);
+                               is_target ? 0.0 : 1.0, phi_out)
+          .evaluator()->set_description(fmt::format("{} degree constraint", v->name()));
       }
 
       if (!is_source && !is_target) {
