@@ -287,8 +287,7 @@ MultibodyPlant<T>::MultibodyPlant(
   // it less brittle.
   visual_geometries_.emplace_back();  // Entries for the "world" body.
   collision_geometries_.emplace_back();
-  // Add the world body to the graph.
-  multibody_graph_.AddBody(world_body().name(), world_body().model_instance());
+
   DeclareSceneGraphPorts();
 }
 
@@ -358,17 +357,6 @@ MultibodyPlant<T>::MultibodyPlant(const MultibodyPlant<U>& other)
     //   -reaction_forces_port_
     //   -instance_generalized_contact_forces_output_ports_
 
-    // Partially copy multibody_graph_. The looped calls to RegisterJointInGraph
-    // below copy the second half.
-    // TODO(xuchenhan-tri) MultibodyGraph should offer a public function (or
-    // constructor) for scalar conversion, so that MbP can just delegate the
-    // copying to MbG, instead of leaking knowledge of what kind of data MbG
-    // holds into MbP's converting constructor here.
-    for (BodyIndex index(0); index < num_bodies(); ++index) {
-      const Body<T>& body = get_body(index);
-      multibody_graph_.AddBody(body.name(), body.model_instance());
-    }
-
     time_step_ = other.time_step_;
     // discrete_update_manager_ is copied below after FinalizePlantOnly().
 
@@ -402,10 +390,6 @@ MultibodyPlant<T>::MultibodyPlant(const MultibodyPlant<U>& other)
 
   DeclareSceneGraphPorts();
 
-  for (JointIndex index(0); index < num_joints(); ++index) {
-    RegisterJointInGraph(get_joint(index));
-  }
-
   // MultibodyTree::CloneToScalar() already called MultibodyTree::Finalize()
   // on the new MultibodyTree on U. Therefore we only Finalize the plant's
   // internals (and not the MultibodyTree).
@@ -417,6 +401,29 @@ MultibodyPlant<T>::MultibodyPlant(const MultibodyPlant<U>& other)
     SetDiscreteUpdateManager(
         other.discrete_update_manager_->template CloneToScalar<T>());
   }
+}
+
+template <typename T>
+bool MultibodyPlant<T>::GetConstraintActiveStatus(
+    const systems::Context<T>& context, MultibodyConstraintId id) const {
+  DRAKE_MBP_THROW_IF_NOT_FINALIZED();
+  this->ValidateContext(context);
+  const std::map<MultibodyConstraintId, bool>& constraint_active_status =
+      this->GetConstraintActiveStatus(context);
+  DRAKE_THROW_UNLESS(constraint_active_status.count(id) > 0);
+  return constraint_active_status.at(id);
+}
+
+template <typename T>
+void MultibodyPlant<T>::SetConstraintActiveStatus(systems::Context<T>* context,
+                                                  MultibodyConstraintId id,
+                                                  bool status) const {
+  DRAKE_MBP_THROW_IF_NOT_FINALIZED();
+  this->ValidateContext(context);
+  std::map<MultibodyConstraintId, bool>& constraint_active_status =
+      this->GetMutableConstraintActiveStatus(context);
+  DRAKE_THROW_UNLESS(constraint_active_status.count(id) > 0);
+  constraint_active_status[id] = status;
 }
 
 template <typename T>
@@ -807,7 +814,7 @@ template <typename T>
 std::vector<const Body<T>*> MultibodyPlant<T>::GetBodiesWeldedTo(
     const Body<T>& body) const {
   const std::set<BodyIndex> island =
-      multibody_graph_.FindBodiesWeldedTo(body.index());
+      internal_tree().multibody_graph().FindBodiesWeldedTo(body.index());
   // Map body indices to pointers.
   std::vector<const Body<T>*> sub_graph_bodies;
   for (BodyIndex body_index : island) {
@@ -965,16 +972,6 @@ template<typename T>
 void MultibodyPlant<T>::Finalize() {
   // After finalizing the base class, tree is read-only.
   internal::MultibodyTreeSystem<T>::Finalize();
-
-  // Add free joints created by tree's finalize to the multibody graph.
-  // Until the call to Finalize(), all joints are added through calls to
-  // MultibodyPlant APIs and therefore registered in the graph. This accounts
-  // for the QuaternionFloatingJoint added for each free body that was not
-  // explicitly given a parent joint. It is important that this loop happens
-  // AFTER finalizing the internal tree.
-  for (JointIndex i{multibody_graph_.num_joints()}; i < num_joints(); ++i) {
-    RegisterJointInGraph(get_joint(i));
-  }
 
   if (geometry_source_is_registered()) {
     ApplyDefaultCollisionFilters();
@@ -1211,7 +1208,7 @@ void MultibodyPlant<T>::ApplyDefaultCollisionFilters() {
   }
   // We explicitly exclude collisions within welded subgraphs.
   std::vector<std::set<BodyIndex>> subgraphs =
-      multibody_graph_.FindSubgraphsOfWeldedBodies();
+      internal_tree().multibody_graph().FindSubgraphsOfWeldedBodies();
   for (const auto& subgraph : subgraphs) {
     // Only operate on non-trivial weld subgraphs.
     if (subgraph.size() <= 1) { continue; }
@@ -2592,6 +2589,7 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
   }
 
   DeclareCacheEntries();
+  DeclareParameters();
 
   // Declare per model instance actuation ports.
   ModelInstanceIndex last_actuated_instance;
@@ -2904,6 +2902,30 @@ void MultibodyPlant<T>::DeclareCacheEntries() {
       {this->all_parameters_ticket()});
   cache_indexes_.joint_locking_data =
       joint_locking_data_cache_entry.cache_index();
+}
+
+template <typename T>
+void MultibodyPlant<T>::DeclareParameters() {
+  DRAKE_DEMAND(this->is_finalized());
+
+  // Collect ids from all constraints known at finalize time and set their
+  // active status to true by default.
+  std::map<MultibodyConstraintId, bool> constraint_active_status_map;
+
+  for (const auto& [id, spec] : coupler_constraints_specs_) {
+    constraint_active_status_map[id] = true;
+  }
+  for (const auto& [id, spec] : distance_constraints_specs_) {
+    constraint_active_status_map[id] = true;
+  }
+  for (const auto& [id, spec] : ball_constraints_specs_) {
+    constraint_active_status_map[id] = true;
+  }
+
+  internal::ConstraintActiveStatusMap map_wrapper{constraint_active_status_map};
+
+  parameter_indices_.constraint_active_status = systems::AbstractParameterIndex{
+      this->DeclareAbstractParameter(drake::Value(map_wrapper))};
 }
 
 template <typename T>
@@ -3303,7 +3325,7 @@ void MultibodyPlant<T>::RemoveUnsupportedScalars(
 template <typename T>
 std::vector<std::set<BodyIndex>>
 MultibodyPlant<T>::FindSubgraphsOfWeldedBodies() const {
-  return multibody_graph_.FindSubgraphsOfWeldedBodies();
+  return internal_tree().multibody_graph().FindSubgraphsOfWeldedBodies();
 }
 
 template <typename T>

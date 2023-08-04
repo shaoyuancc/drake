@@ -1711,9 +1711,7 @@ GTEST_TEST(MultibodyPlantTest, ReversedWeldError) {
   // reflect that.
   DRAKE_EXPECT_THROWS_MESSAGE(
       plant.Finalize(),
-      "This multibody tree already has a mobilizer connecting "
-      "inboard frame \\(index=0\\) and outboard frame \\(index=\\d*\\). "
-      "More than one mobilizer between two frames is not allowed.");
+      ".*already has a joint.*extra_welds_to_world.*joint.*not allowed.*");
 }
 
 // Utility to verify that the only ports of MultibodyPlant that are feedthrough
@@ -3838,6 +3836,56 @@ GTEST_TEST(MultibodyPlantTest, AutoDiffAcrobotParameters) {
   EXPECT_TRUE(CompareMatrices(mass_matrix_grad.col(3),
                               analytic_mass_matrix_partial_l2, kTolerance,
                               MatrixCompareType::relative));
+}
+
+GTEST_TEST(MultibodyPlantTests, ConstraintActiveStatus) {
+  // Set up a plant with 3 constraints with arbitrary parameters.
+  MultibodyPlant<double> plant(0.01);
+  plant.set_discrete_contact_solver(DiscreteContactSolver::kSap);
+  const Body<double>& body_A =
+      plant.AddRigidBody("body_A", SpatialInertia<double>{});
+  const Body<double>& body_B =
+      plant.AddRigidBody("body_B", SpatialInertia<double>{});
+  const RevoluteJoint<double>& world_A =
+      plant.AddJoint<RevoluteJoint>("world_A", plant.world_body(), std::nullopt,
+                                    body_A, std::nullopt, Vector3d::UnitZ());
+  const RevoluteJoint<double>& A_B = plant.AddJoint<RevoluteJoint>(
+      "A_B", body_A, std::nullopt, body_B, std::nullopt, Vector3d::UnitZ());
+  MultibodyConstraintId coupler_id =
+      plant.AddCouplerConstraint(world_A, A_B, 2.3);
+  MultibodyConstraintId distance_id = plant.AddDistanceConstraint(
+      body_A, Vector3d(1.0, 2.0, 3.0), body_B, Vector3d(4.0, 5.0, 6.0), 2.0);
+  MultibodyConstraintId ball_id = plant.AddBallConstraint(
+      body_A, Vector3d(-1.0, -2.0, -3.0), body_B, Vector3d(-4.0, -5.0, -6.0));
+
+  plant.Finalize();
+
+  std::unique_ptr<Context<double>> context = plant.CreateDefaultContext();
+
+  // Verify all constraints are active in a default context.
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, coupler_id));
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, distance_id));
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, ball_id));
+
+  // Set all constraints to inactive.
+  plant.SetConstraintActiveStatus(context.get(), coupler_id, false);
+  plant.SetConstraintActiveStatus(context.get(), distance_id, false);
+  plant.SetConstraintActiveStatus(context.get(), ball_id, false);
+
+  // Verify all constraints are inactive in the context.
+  EXPECT_FALSE(plant.GetConstraintActiveStatus(*context, coupler_id));
+  EXPECT_FALSE(plant.GetConstraintActiveStatus(*context, distance_id));
+  EXPECT_FALSE(plant.GetConstraintActiveStatus(*context, ball_id));
+
+  // Set all constraints to back to active.
+  plant.SetConstraintActiveStatus(context.get(), coupler_id, true);
+  plant.SetConstraintActiveStatus(context.get(), distance_id, true);
+  plant.SetConstraintActiveStatus(context.get(), ball_id, true);
+
+  // Verify all constraints are active in the context.
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, coupler_id));
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, distance_id));
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, ball_id));
 }
 
 GTEST_TEST(MultibodyPlantTests, FixedOffsetFrameFunctions) {
