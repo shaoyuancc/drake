@@ -1472,12 +1472,12 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
             *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_;
       }
       if (is_transition){
-        // For transition vertex, flow constraints are as follows:
+        // Flow constraints
         // ∑ ϕ_in = 1
         RowVectorXd a_in(incoming.size() + outgoing.size());
-        a_in << RowVectorXd::Ones(incoming.size()),
+        a_in << RowVectorXd::Constant(incoming.size(), -1.0),
                 RowVectorXd::Zero(outgoing.size());
-        prog.AddLinearEqualityConstraint(a_in, 1.0, vars)
+        prog.AddLinearEqualityConstraint(a_in, -1.0, vars)
           .evaluator()->set_description("transition ∑ ϕ_in = 1");
         // ϕ_out = 1, ∀ outgoing edges
         for (const Edge* e : outgoing) {
@@ -1487,26 +1487,8 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
             .evaluator()->set_description(fmt::format("{} ϕ = 1", e->name()));
         }
         
-      }
-      else {
-        // Conservation of flow: ∑ ϕ_out - ∑ ϕ_in = δ(is_source) - δ(is_target).
-        prog.AddLinearEqualityConstraint(
-            a, (is_source ? 1.0 : 0.0) - (is_target ? 1.0 : 0.0), vars)
-          .evaluator()->set_description(fmt::format("{} conservation of flow", v->name()));
-      } 
-
-      if (is_transition) {
-        for (int i=1; i<ssize(incoming); ++i) {
-          prog.AddLinearEqualityConstraint(incoming[i]->z_ == incoming[0]->z_)
-            .evaluator()->set_description("transition z_in's are all equal");
-        }
-        for (const Edge* e : outgoing) {
-          prog.AddLinearEqualityConstraint(e->y_ == incoming[0]->z_)
-            .evaluator()->set_description("transition y_outs = z_ins");
-        }
-      }
-      // Spatial conservation of flow: ∑ z_in = ∑ y_out (for each ambient dimension).
-      else if (!is_source && !is_target) {
+        // Spatial Flow Constraints
+        // ∑ z_in = y_out[i] ∀ outgoing edges
         for (int i = 0; i < v->ambient_dimension(); ++i) {
           count = 0;
           for (const Edge* e : incoming) {
@@ -1515,9 +1497,36 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
           for (const Edge* e : outgoing) {
             vars[count++] = e->y_[i];
           }
-          prog.AddLinearEqualityConstraint(a, 0, vars)
-            .evaluator()->set_description(fmt::format("{} spatial conservation of flow", v->name()));
+
+          for (int j = 0; j<ssize(outgoing); ++j){
+            a_in << RowVectorXd::Constant(incoming.size(), -1.0),
+                    RowVectorXd::Zero(outgoing.size());
+            a_in[ssize(incoming) + j] = 1;
+            prog.AddLinearEqualityConstraint(a_in, 0, vars)
+              .evaluator()->set_description(fmt::format("{} ∑ z_in = y_out", outgoing[j]->name()));
+          }
         }
+      }
+      else { // Not transition vertex
+        // Conservation of flow: ∑ ϕ_out - ∑ ϕ_in = δ(is_source) - δ(is_target).
+        prog.AddLinearEqualityConstraint(
+            a, (is_source ? 1.0 : 0.0) - (is_target ? 1.0 : 0.0), vars)
+          .evaluator()->set_description(fmt::format("{} conservation of flow", v->name()));
+        
+        // Spatial conservation of flow: ∑ z_in = ∑ y_out (for each ambient dimension).
+        if (!is_source && !is_target) {
+          for (int i = 0; i < v->ambient_dimension(); ++i) {
+            count = 0;
+            for (const Edge* e : incoming) {
+              vars[count++] = e->z_[i];
+            }
+            for (const Edge* e : outgoing) {
+              vars[count++] = e->y_[i];
+            }
+            prog.AddLinearEqualityConstraint(a, 0, vars)
+              .evaluator()->set_description(fmt::format("{} spatial conservation of flow", v->name()));
+          }
+        } 
       } 
     }
 
@@ -1648,6 +1657,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
   for (const auto& name : infeasible_constraint_names){
     log()->warn("Infeasible constraint: {}", name);
   }
+  // log()->info(prog);
 
   
   // Push the placeholder variables and excluded edge variables into the
@@ -1695,13 +1705,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
     const bool is_transition = (transition_id == v->id());
     VectorXd x_v = VectorXd::Zero(v->ambient_dimension());
     double sum_phi = 0;
-    if (is_target) {
-      sum_phi = 1.0;
-      for (const auto& e : incoming_edges[v->id()]) {
-        x_v += result.GetSolution(e->z_);
-      }
-    } 
-    else if (is_transition) {
+    if (is_target || is_transition) {
       sum_phi = 1.0;
       for (const auto& e : incoming_edges[v->id()]) {
         x_v += result.GetSolution(e->z_);

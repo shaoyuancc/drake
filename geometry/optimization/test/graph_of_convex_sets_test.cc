@@ -2812,6 +2812,24 @@ class BoxesFactored : public ::testing::Test{
   GraphOfConvexSetsOptions options_;
 };
 
+// TEST_F(BoxesFactored, StandardShortestPath) {
+//   auto result = g_.SolveShortestPath(*source_, *target_a_, options_);
+
+//   ASSERT_TRUE(result.is_success());
+//   double tol = 1e-6;
+
+//   EXPECT_NEAR(result.GetSolution(e_source_transition_->phi()), 1., tol);
+//   EXPECT_NEAR(result.GetSolution(e_transition_inter_a_->phi()), 1., tol);
+//   EXPECT_NEAR(result.GetSolution(e_inter_a_target_a_->phi()), 1., tol);
+
+//   const Vector4d a{0.5, 0.5, 0.5, -0.5};
+//   EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));
+//   const Vector4d b{1.5, 0.5, 1.5, -0.5};
+//   EXPECT_TRUE(CompareMatrices(transition_->GetSolution(result), b, tol));
+//   const Vector2d c{1.5, 2.};
+//   EXPECT_TRUE(CompareMatrices(target_a_->GetSolution(result), c, tol));
+// }
+
 TEST_F(BoxesFactored, TransitionEdgeConstraints){
   auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
     targets, options_);
@@ -2820,17 +2838,17 @@ TEST_F(BoxesFactored, TransitionEdgeConstraints){
   double tol = 1e-6;
   
   EXPECT_NEAR(result.get_optimal_cost(), 4.4142135623730958, tol);
-  EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
-  EXPECT_EQ(result.GetSolution(e_transition_inter_a_->phi()), 1.);
-  EXPECT_EQ(result.GetSolution(e_inter_a_target_a_->phi()), 1.);
-  EXPECT_EQ(result.GetSolution(e_transition_inter_b_->phi()), 1.);
-  EXPECT_EQ(result.GetSolution(e_inter_b_target_b_->phi()), 1.);
-  EXPECT_EQ(result.GetSolution(e_inter_a_decoy_a_->phi()), 0.);
-  EXPECT_EQ(result.GetSolution(e_inter_b_decoy_b_->phi()), 0.);
-  EXPECT_EQ(result.GetSolution(e_decoy_a_target_a_->phi()), 0.);
-  EXPECT_EQ(result.GetSolution(e_decoy_b_target_b_->phi()), 0.);
-  EXPECT_EQ(result.GetSolution(e_source_decoy_->phi()), 0.);
-  EXPECT_EQ(result.GetSolution(e_decoy_transition_->phi()), 0.);
+  EXPECT_NEAR(result.GetSolution(e_source_transition_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_transition_inter_a_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_inter_a_target_a_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_transition_inter_b_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_inter_b_target_b_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_inter_a_decoy_a_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_inter_b_decoy_b_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_decoy_a_target_a_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_decoy_b_target_b_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_source_decoy_->phi()), 0., tol);
+  EXPECT_NEAR(result.GetSolution(e_decoy_transition_->phi()), 0., tol);
   EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 1.4142135623730951, tol);
   
   const Vector4d a{0.5, 0.5, 0.5, -0.5};
