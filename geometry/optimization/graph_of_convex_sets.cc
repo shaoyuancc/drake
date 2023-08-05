@@ -1647,16 +1647,16 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
 
   MathematicalProgramResult result = Solve(prog, options);
   log()->info(
-      "Solved GCS shortest path using {} with convex_relaxation={} and "
+      "Solved GCS factored shortest path using {} with convex_relaxation={} and "
       "preprocessing={}{}.",
       result.get_solver_id().name(), *options.convex_relaxation,
       *options.preprocessing,
       *options.max_rounded_paths > 0 ? " and rounding" : " and no rounding");
 
   auto infeasible_constraint_names = result.GetInfeasibleConstraintNames(prog);
-  for (const auto& name : infeasible_constraint_names){
-    log()->warn("Infeasible constraint: {}", name);
-  }
+  // for (const auto& name : infeasible_constraint_names){
+  //   log()->warn("Infeasible constraint: {}", name);
+  // }
   // log()->info(prog);
 
   
@@ -1998,7 +1998,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
   return result;
 }
 
-MathematicalProgramResult GraphOfConvexSets::SolveFactoredConvexRestriction(
+MathematicalProgramResult GraphOfConvexSets::SolveFactoredPartialConvexRestriction(
     const std::vector<const Edge*>& active_edges,
     const Vertex & transition,
     const std::vector<const Vertex*>& targets,

@@ -838,11 +838,11 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("source"), py::arg("transition"), py::arg("targets"),
             py::arg("options") = GraphOfConvexSetsOptions(),
             cls_doc.SolveFactoredShortestPath.doc)
-        .def("SolveFactoredConvexRestriction",
-            &GraphOfConvexSets::SolveFactoredConvexRestriction,
+        .def("SolveFactoredPartialConvexRestriction",
+            &GraphOfConvexSets::SolveFactoredPartialConvexRestriction,
             py::arg("active_edges"), py::arg("transition"), py::arg("targets"),
             py::arg("options") = GraphOfConvexSetsOptions(),
-            cls_doc.SolveFactoredConvexRestriction.doc);
+            cls_doc.SolveFactoredPartialConvexRestriction.doc);
   }
   {
     // Definitions for c_iris_collision_geometry.h/cc
