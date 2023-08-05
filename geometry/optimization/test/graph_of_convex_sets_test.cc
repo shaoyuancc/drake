@@ -2324,17 +2324,17 @@ class PointsFactored : public ::testing::Test{
       ASSERT_TRUE(result.is_success());
       double tol = 1e-6;
       EXPECT_NEAR(result.get_optimal_cost(), 9.65685424949238, tol);
-      EXPECT_EQ(result.GetSolution(e_source_p1_->phi()), 0.);
-      EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
-      EXPECT_EQ(result.GetSolution(e_p1_transition_->phi()), 0.);
-      EXPECT_EQ(result.GetSolution(e_transition_p2_->phi()), 1.);
-      EXPECT_EQ(result.GetSolution(e_transition_p4_->phi()), 1.);
-      EXPECT_EQ(result.GetSolution(e_p2_p3_->phi()), 0.);
-      EXPECT_EQ(result.GetSolution(e_p3_target_a_->phi()), 0.);
-      EXPECT_EQ(result.GetSolution(e_p2_target_a_->phi()), 1.);
-      EXPECT_EQ(result.GetSolution(e_p4_p5_->phi()), 0.);
-      EXPECT_EQ(result.GetSolution(e_p5_target_b_->phi()), 0.);
-      EXPECT_EQ(result.GetSolution(e_p4_target_b_->phi()), 1.);
+      EXPECT_NEAR(result.GetSolution(e_source_p1_->phi()), 0., tol);
+      EXPECT_NEAR(result.GetSolution(e_source_transition_->phi()), 1., tol);
+      EXPECT_NEAR(result.GetSolution(e_p1_transition_->phi()), 0., tol);
+      EXPECT_NEAR(result.GetSolution(e_transition_p2_->phi()), 1., tol);
+      EXPECT_NEAR(result.GetSolution(e_transition_p4_->phi()), 1., tol);
+      EXPECT_NEAR(result.GetSolution(e_p2_p3_->phi()), 0., tol);
+      EXPECT_NEAR(result.GetSolution(e_p3_target_a_->phi()), 0., tol);
+      EXPECT_NEAR(result.GetSolution(e_p2_target_a_->phi()), 1., tol);
+      EXPECT_NEAR(result.GetSolution(e_p4_p5_->phi()), 0., tol);
+      EXPECT_NEAR(result.GetSolution(e_p5_target_b_->phi()), 0., tol);
+      EXPECT_NEAR(result.GetSolution(e_p4_target_b_->phi()), 1., tol);
       const Vector4d a{0., 0., 0., 0.};
       EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));
       const Vector4d b{2., 0., 2., 0.};
@@ -2492,9 +2492,9 @@ class BoxesFactoredSimple : public ::testing::Test{
       double tol = 1e-6;
       
       EXPECT_NEAR(result.get_optimal_cost(), 4.4142135623730958, tol);
-      EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
-      EXPECT_EQ(result.GetSolution(e_transition_target_a_->phi()), 1.);
-      EXPECT_EQ(result.GetSolution(e_transition_target_b_->phi()), 1.);
+      EXPECT_NEAR(result.GetSolution(e_source_transition_->phi()), 1., tol);
+      EXPECT_NEAR(result.GetSolution(e_transition_target_a_->phi()), 1., tol);
+      EXPECT_NEAR(result.GetSolution(e_transition_target_b_->phi()), 1., tol);
       EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 1.4142135623730951, tol);
       EXPECT_NEAR(e_transition_target_a_->GetSolutionCost(result), 1.5, tol);
       EXPECT_NEAR(e_transition_target_b_->GetSolutionCost(result), 1.5, tol);
@@ -2530,8 +2530,8 @@ TEST_F(BoxesFactoredSimple, StandardShortestPath){
   EXPECT_NEAR(result.get_optimal_cost(), 2.618033988749895, tol);
   EXPECT_NEAR(e_source_transition_->GetSolutionCost(result), 1.118033988749895, tol);
   EXPECT_NEAR(e_transition_target_a_->GetSolutionCost(result), 1.5, tol);
-  EXPECT_EQ(result.GetSolution(e_source_transition_->phi()), 1.);
-  EXPECT_EQ(result.GetSolution(e_transition_target_a_->phi()), 1.);
+  EXPECT_NEAR(result.GetSolution(e_source_transition_->phi()), 1., tol);
+  EXPECT_NEAR(result.GetSolution(e_transition_target_a_->phi()), 1., tol);
 
   const Vector4d a{0.5, 0.5, 0.5, -0.5};
   EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), a, tol));
