@@ -707,11 +707,11 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("source"), py::arg("transition"), py::arg("targets"),
             py::arg("options") = GraphOfConvexSetsOptions(),
             cls_doc.SolveFactoredShortestPath.doc)
-        .def("SolveFactoredConvexRestriction",
-            &GraphOfConvexSets::SolveFactoredConvexRestriction,
+        .def("SolveFactoredPartialConvexRestriction",
+            &GraphOfConvexSets::SolveFactoredPartialConvexRestriction,
             py::arg("active_edges"), py::arg("transition"), py::arg("targets"),
             py::arg("options") = GraphOfConvexSetsOptions(),
-            cls_doc.SolveFactoredConvexRestriction.doc);
+            cls_doc.SolveFactoredPartialConvexRestriction.doc);
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"

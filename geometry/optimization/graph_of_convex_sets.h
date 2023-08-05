@@ -570,7 +570,7 @@ class GraphOfConvexSets {
   All outgoing edges of transition are active, and there are 
   n_transition_outgoing_edges paths between transition and targets.
   */
-  solvers::MathematicalProgramResult SolveFactoredConvexRestriction(
+  solvers::MathematicalProgramResult SolveFactoredPartialConvexRestriction(
       const std::vector<const Edge*>& active_edges,
       const Vertex& transition,
       const std::vector<const Vertex*>& targets,
