@@ -2404,9 +2404,15 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredPartialConvexRestricti
   int num_placeholder_vars = relaxed_phi.size();
   for (const std::pair<const VertexId, std::unique_ptr<Vertex>>& vpair :
         vertices_) {
+    const bool is_conv_res_vertex = (vertices_conv_res.count(vpair.second.get()));
+    if (is_conv_res_vertex) {
+      // Do not need to set the v.x() variables because they are already set
+      continue;
+    }
     num_placeholder_vars += vpair.second->ambient_dimension();
     num_placeholder_vars += vpair.second->ell_.size();
   }
+  
   for (const Edge* e : excluded_edges) {
     num_placeholder_vars += e->y_.size() + e->z_.size() + e->ell_.size() + 1;
   }
@@ -2430,6 +2436,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredPartialConvexRestricti
       decision_variable_index.emplace(e->ell_[i].get_id(), count);
       x_val[count++] = 0;
     }
+    
     decision_variable_index.emplace(e->phi_.get_id(), count);
     x_val[count++] = is_active_edge ? 1.0 : 0.0;
   }
@@ -2444,40 +2451,40 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredPartialConvexRestricti
         vertices_) {
     const Vertex* v = vpair.second.get();
     const bool is_conv_res_vertex = (vertices_conv_res.count(v));
-    if (is_conv_res_vertex) {
-      // Do not need to set the v.x() variables because they are already set
-      continue;
-    }
-    const bool is_target = (target_ids.count(v->id()));
+    if (!is_conv_res_vertex) {
+      
+      const bool is_target = (target_ids.count(v->id()));
     
-    VectorXd x_v = VectorXd::Zero(v->ambient_dimension());
-    double sum_phi = 0;
-    if (is_target) {
-      sum_phi = 1.0;
-      for (const auto& e : incoming_edges[v->id()]) {
-        x_v += result.GetSolution(e->z_);
+      VectorXd x_v = VectorXd::Zero(v->ambient_dimension());
+      double sum_phi = 0;
+      if (is_target) {
+        sum_phi = 1.0;
+        for (const auto& e : incoming_edges[v->id()]) {
+          x_v += result.GetSolution(e->z_);
+        }
+      } else {
+        for (const auto& e : outgoing_edges[v->id()]) {
+          x_v += result.GetSolution(e->y_);
+          sum_phi += result.GetSolution(
+              *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_);
+        }
       }
-    } else {
-      for (const auto& e : outgoing_edges[v->id()]) {
-        x_v += result.GetSolution(e->y_);
-        sum_phi += result.GetSolution(
-            *options.convex_relaxation ? relaxed_phi.at(e->id()) : e->phi_);
+      // In the convex relaxation, sum_relaxed_phi may not be one even for
+      // vertices in the shortest path. We undo yₑ = ϕₑ xᵤ here to ensure that
+      // xᵤ is in v->set(). If ∑ ϕₑ is small enough that numerical errors
+      // prevent the projection back into the Xᵤ, then we prefer to return NaN.
+      if (sum_phi < 100.0 * std::numeric_limits<double>::epsilon()) {
+        x_v = VectorXd::Constant(v->ambient_dimension(),
+                                  std::numeric_limits<double>::quiet_NaN());
+      } else if (*options.convex_relaxation) {
+        x_v /= sum_phi;
+      }
+      for (int i = 0; i < v->ambient_dimension(); ++i) {
+        decision_variable_index.emplace(v->x()[i].get_id(), count);
+        x_val[count++] = x_v[i];
       }
     }
-    // In the convex relaxation, sum_relaxed_phi may not be one even for
-    // vertices in the shortest path. We undo yₑ = ϕₑ xᵤ here to ensure that
-    // xᵤ is in v->set(). If ∑ ϕₑ is small enough that numerical errors
-    // prevent the projection back into the Xᵤ, then we prefer to return NaN.
-    if (sum_phi < 100.0 * std::numeric_limits<double>::epsilon()) {
-      x_v = VectorXd::Constant(v->ambient_dimension(),
-                                std::numeric_limits<double>::quiet_NaN());
-    } else if (*options.convex_relaxation) {
-      x_v /= sum_phi;
-    }
-    for (int i = 0; i < v->ambient_dimension(); ++i) {
-      decision_variable_index.emplace(v->x()[i].get_id(), count);
-      x_val[count++] = x_v[i];
-    }
+    // This needs to happen even for active edges
     for (int ii = 0; ii < v->ell_.size(); ++ii) {
       decision_variable_index.emplace(v->ell_[ii].get_id(), count);
       x_val[count++] =
