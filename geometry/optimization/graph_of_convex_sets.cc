@@ -1419,6 +1419,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredShortestPath(
       // vars = [phi; yz_vars]
       vars[0] = phi;
       for (int j = 0; j < old_vars.size(); ++j) {
+        log()->debug("old_vars[{}] = {}, is key in {}->x_to_yz_? {}", j,  old_vars[j], e->name(), e->x_to_yz_.count(old_vars[j]));
         vars[j + 1] = e->x_to_yz_.at(old_vars[j]);
       }
 
@@ -2180,6 +2181,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredPartialConvexRestricti
       vars[0] = phi;
       vars[1] = e->ell_[i];
       for (int j = 0; j < old_vars.size(); ++j) {
+
         vars[j + 2] = e->x_to_yz_.at(old_vars[j]);
       }
 
@@ -2492,13 +2494,21 @@ MathematicalProgramResult GraphOfConvexSets::SolveFactoredPartialConvexRestricti
         decision_variable_index.emplace(v->x()[i].get_id(), count);
         x_val[count++] = x_v[i];
       }
+      for (int ii = 0; ii < v->ell_.size(); ++ii) {
+        log()->debug("{}, is key in {} vertex_edge_ell? {}", v->id(), v->name(), vertex_edge_ell.count(v->id()));
+        decision_variable_index.emplace(v->ell_[ii].get_id(), count);
+        x_val[count++] =
+            result.GetSolution(vertex_edge_ell.at(v->id()).col(ii)).sum();
+      }
     }
-    // This needs to happen even for active edges
-    for (int ii = 0; ii < v->ell_.size(); ++ii) {
-      decision_variable_index.emplace(v->ell_[ii].get_id(), count);
-      x_val[count++] =
-          result.GetSolution(vertex_edge_ell.at(v->id()).col(ii)).sum();
-    }
+    // This needs to happen even for active edges (wait why does this need to happen for the active edges?)
+    // Shifted back into the loop above. I think it's causing the 
+    // for (int ii = 0; ii < v->ell_.size(); ++ii) {
+    //   log()->debug("{}, is key in {} vertex_edge_ell? {}", v->id(), v->name(), vertex_edge_ell.count(v->id()));
+    //   decision_variable_index.emplace(v->ell_[ii].get_id(), count);
+    //   x_val[count++] =
+    //       result.GetSolution(vertex_edge_ell.at(v->id()).col(ii)).sum();
+    // }
   }
   if (*options.convex_relaxation) {
     // Write the value of the relaxed phi into the phi placeholder.
