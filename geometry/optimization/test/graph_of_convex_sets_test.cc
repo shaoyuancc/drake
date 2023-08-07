@@ -2848,6 +2848,173 @@ TEST_F(BoxesFactored, SolveFactoredPartialConvexRestriction){
   ValidateResult(result);
 }
 
+class TwelveBoxesFactored : public ::testing::Test{
+  protected:
+    TwelveBoxesFactored(){
+      auto source_box = HPolyhedron::MakeBox(Vector4d(0, 0, 0, 0), Vector4d(1, 1, 1, 1));
+      // auto decoy_box = HPolyhedron::MakeBox(Vector4d(0, 4, 0, 4), Vector4d(1, 5, 1, 5));
+      auto decoy_box = HPolyhedron::MakeBox(Vector4d(0, 10, 0, 10), Vector4d(1, 11, 1, 11));
+      auto inter_box = HPolyhedron::MakeBox(Vector4d(2, 0, 2, 0), Vector4d(3, 1, 3 , 1));
+      auto transition_box = HPolyhedron::MakeBox(Vector4d(2, 4, 2, 4), Vector4d(3, 5, 3, 5));
+      auto inter_a1_box = HPolyhedron::MakeBox(Vector2d(4, 4), Vector2d(5, 5));
+      auto inter_b1_box = HPolyhedron::MakeBox(Vector2d(4, 4), Vector2d(5, 5));
+      // auto decoy_a_box = HPolyhedron::MakeBox(Vector2d(6, 6), Vector2d(7, 7));
+      // auto decoy_b_box = HPolyhedron::MakeBox(Vector2d(6, 2), Vector2d(7, 3));
+      auto decoy_a_box = HPolyhedron::MakeBox(Vector2d(10, 6), Vector2d(11, 7));
+      auto decoy_b_box = HPolyhedron::MakeBox(Vector2d(10, 2), Vector2d(11, 3));
+      auto inter_a2_box = HPolyhedron::MakeBox(Vector2d(4, 8), Vector2d(5, 9));
+      auto inter_b2_box = HPolyhedron::MakeBox(Vector2d(4, 0), Vector2d(5, 1));
+      auto target_a_box = HPolyhedron::MakeBox(Vector2d(6, 8), Vector2d(7, 9));
+      auto target_b_box = HPolyhedron::MakeBox(Vector2d(6, 0), Vector2d(7, 1));
+
+      source_ = g_.AddVertex(source_box, "source");
+      decoy_ = g_.AddVertex(decoy_box, "decoy");
+      inter_ = g_.AddVertex(inter_box, "inter");
+      transition_ = g_.AddVertex(transition_box, "transition");
+      inter_a1_ = g_.AddVertex(inter_a1_box, "inter_a1");
+      inter_b1_ = g_.AddVertex(inter_b1_box, "inter_b1");
+      decoy_a_ = g_.AddVertex(decoy_a_box, "decoy_a");
+      decoy_b_ = g_.AddVertex(decoy_b_box, "decoy_b");
+      inter_a2_ = g_.AddVertex(inter_a2_box, "inter_a2");
+      inter_b2_ = g_.AddVertex(inter_b2_box, "inter_b2");
+      target_a_ = g_.AddVertex(target_a_box, "target_a");
+      target_b_ = g_.AddVertex(target_b_box, "target_b");
+
+      e_source_decoy_ = g_.AddEdge(source_, decoy_, "e_source_decoy");
+      e_decoy_inter_ = g_.AddEdge(decoy_, inter_, "e_decoy_inter");
+      e_source_inter_ = g_.AddEdge(source_, inter_, "e_source_inter");
+      e_inter_transition_ = g_.AddEdge(inter_, transition_, "e_inter_transition");
+      e_transition_inter_a1_ = g_.AddEdge(transition_, inter_a1_, "e_transition_inter_a1");
+      e_transition_inter_b1_ = g_.AddEdge(transition_, inter_b1_, "e_transition_inter_b1");
+      e_inter_a1_decoy_a_ = g_.AddEdge(inter_a1_, decoy_a_, "e_inter_a1_decoy_a");
+      e_inter_b1_decoy_b_ = g_.AddEdge(inter_b1_, decoy_b_, "e_inter_b1_decoy_b");
+      e_decoy_a_inter_a2_ = g_.AddEdge(decoy_a_, inter_a2_, "e_decoy_a_inter_a2");
+      e_decoy_b_inter_b2_ = g_.AddEdge(decoy_b_, inter_b2_, "e_decoy_b_inter_b2");
+      e_inter_a1_inter_a2_ = g_.AddEdge(inter_a1_, inter_a2_, "e_inter_a1_inter_a2");
+      e_inter_b1_inter_b2_ = g_.AddEdge(inter_b1_, inter_b2_, "e_inter_b1_inter_b2");
+      e_inter_a2_target_a_ = g_.AddEdge(inter_a2_, target_a_, "e_inter_a2_target_a");
+      e_inter_b2_target_b_ = g_.AddEdge(inter_b2_, target_b_, "e_inter_b2_target_b");
+
+      // Add costs L2NormSquared
+      std::vector<Edge*> edges_same_dim = {e_source_decoy_, e_decoy_inter_, e_source_inter_, e_inter_transition_,
+        e_inter_a1_decoy_a_, e_inter_b1_decoy_b_, e_decoy_a_inter_a2_,
+        e_decoy_b_inter_b2_, e_inter_a1_inter_a2_, e_inter_b1_inter_b2_, e_inter_a2_target_a_, e_inter_b2_target_b_};
+      for (auto edge : edges_same_dim){
+        edge->AddCost((edge->xu() - edge->xv()).squaredNorm());
+      }
+      e_transition_inter_a1_->AddCost((e_transition_inter_a1_->xu().head(2) - e_transition_inter_a1_->xv()).squaredNorm());
+      e_transition_inter_b1_->AddCost((e_transition_inter_b1_->xu().tail(2) - e_transition_inter_b1_->xv()).squaredNorm());
+
+      // Add constraints
+      // Constrain y values to be the same
+      e_source_inter_->AddConstraint(e_source_inter_->xu()[1] == e_source_inter_->xv()[1]);
+      e_source_inter_->AddConstraint(e_source_inter_->xu()[3] == e_source_inter_->xv()[3]);
+      e_transition_inter_a1_->AddConstraint(e_transition_inter_a1_->xu()[1] == e_transition_inter_a1_->xv()[1]);
+      e_transition_inter_b1_->AddConstraint(e_transition_inter_b1_->xu()[3] == e_transition_inter_b1_->xv()[1]);
+      e_inter_a2_target_a_->AddConstraint(e_inter_a2_target_a_->xu()[1] == e_inter_a2_target_a_->xv()[1]);
+      e_inter_b2_target_b_->AddConstraint(e_inter_b2_target_b_->xu()[1] == e_inter_b2_target_b_->xv()[1]);
+      
+      // Constrain x values to be the same
+      e_inter_transition_->AddConstraint(e_inter_transition_->xu()[0] == e_inter_transition_->xv()[0]);
+      e_inter_transition_->AddConstraint(e_inter_transition_->xu()[2] == e_inter_transition_->xv()[2]);
+      e_inter_a1_inter_a2_->AddConstraint(e_inter_a1_inter_a2_->xu()[0] == e_inter_a1_inter_a2_->xv()[0]);
+      e_inter_b1_inter_b2_->AddConstraint(e_inter_b1_inter_b2_->xu()[0] == e_inter_b1_inter_b2_->xv()[0]);
+
+      options_.convex_relaxation = false;
+
+      targets = {target_a_, target_b_};
+      active_edges = {e_source_inter_, e_inter_transition_};
+    }
+
+    void ValidateResult(const MathematicalProgramResult& result){
+      ASSERT_TRUE(result.is_success());
+      double tol = 1e-6;
+      
+      
+      std::set<Edge*> expected_active_edges = {e_source_inter_, e_inter_transition_, e_transition_inter_a1_,
+        e_transition_inter_b1_, e_inter_a1_inter_a2_, e_inter_b1_inter_b2_, e_inter_a2_target_a_, e_inter_b2_target_b_};
+      for (auto& e : g_.Edges()){
+        if (expected_active_edges.count(e) > 0){
+          EXPECT_NEAR(result.GetSolution(e->phi()), 1., tol);
+        } else {
+          EXPECT_NEAR(result.GetSolution(e->phi()), 0., tol);
+        }
+      }
+
+      // These values are not right yet, these test are not complete!
+      // EXPECT_NEAR(result.get_optimal_cost(), 59.5, tol);
+      // EXPECT_NEAR(e_source_inter_->GetSolutionCost(result), 4.5, tol);
+      // EXPECT_NEAR(e_inter_transition_->GetSolutionCost(result), 21.25, tol);
+      // EXPECT_NEAR(e_transition_inter_a1_->GetSolutionCost(result), 4, tol);
+      // EXPECT_NEAR(e_transition_inter_b1_->GetSolutionCost(result), 4, tol);
+      // EXPECT_NEAR(e_inter_a1_inter_a2_->GetSolutionCost(result), 12.25, tol);
+      // EXPECT_NEAR(e_inter_b1_inter_b2_->GetSolutionCost(result), 9, tol);
+      // EXPECT_NEAR(e_inter_a2_target_a_->GetSolutionCost(result), 2.25, tol);
+      // EXPECT_NEAR(e_inter_b2_target_b_->GetSolutionCost(result), 2.25, tol);
+
+      // EXPECT_TRUE(CompareMatrices(source_->GetSolution(result), Vector4d(1, 1, 1, 1), tol));
+      // EXPECT_TRUE(CompareMatrices(inter_->GetSolution(result), Vector4d(2.5, 1, 2.5, 1), tol));
+      // EXPECT_TRUE(CompareMatrices(transition_->GetSolution(result), Vector4d(2.5, 4.0, 2.5, 4.5), tol));
+      // EXPECT_TRUE(CompareMatrices(inter_a1_->GetSolution(result), Vector2d(4.5, 4.5), tol));
+      // EXPECT_TRUE(CompareMatrices(inter_b1_->GetSolution(result), Vector2d(4.5, 4.0), tol));
+      // EXPECT_TRUE(CompareMatrices(inter_a2_->GetSolution(result), Vector2d(4.5, 8.0), tol));
+      // EXPECT_TRUE(CompareMatrices(inter_b2_->GetSolution(result), Vector2d(4.5, 1.0), tol));
+      // EXPECT_TRUE(CompareMatrices(target_a_->GetSolution(result), Vector2d(6.0, 8.0), tol));
+      // EXPECT_TRUE(CompareMatrices(target_b_->GetSolution(result), Vector2d(6.0, 1.0), tol));
+    }
+
+  GraphOfConvexSets g_;
+  Vertex* source_{nullptr};
+  Vertex* decoy_{nullptr};
+  Vertex* inter_{nullptr};
+  Vertex* transition_{nullptr};
+  Vertex* inter_a1_{nullptr};
+  Vertex* inter_b1_{nullptr};
+  Vertex* decoy_a_{nullptr};
+  Vertex* decoy_b_{nullptr};
+  Vertex* inter_a2_{nullptr};
+  Vertex* inter_b2_{nullptr};
+  Vertex* target_a_{nullptr};
+  Vertex* target_b_{nullptr};
+  Edge* e_source_decoy_{nullptr};
+  Edge* e_decoy_inter_{nullptr};
+  Edge* e_source_inter_{nullptr};
+  Edge* e_inter_transition_{nullptr};
+  Edge* e_transition_inter_a1_{nullptr};
+  Edge* e_transition_inter_b1_{nullptr};
+  Edge* e_inter_a1_decoy_a_{nullptr};
+  Edge* e_inter_b1_decoy_b_{nullptr};
+  Edge* e_decoy_a_inter_a2_{nullptr};
+  Edge* e_decoy_b_inter_b2_{nullptr};
+  Edge* e_inter_a1_inter_a2_{nullptr};
+  Edge* e_inter_b1_inter_b2_{nullptr};
+  Edge* e_inter_a2_target_a_{nullptr};
+  Edge* e_inter_b2_target_b_{nullptr};
+  std::vector<const Vertex*> targets;
+  std::vector<const Edge*> active_edges;
+  GraphOfConvexSetsOptions options_;
+};
+
+TEST_F(TwelveBoxesFactored, StandardShortestPath) {
+  auto result = g_.SolveShortestPath(*source_, *target_a_, options_);
+
+  ASSERT_TRUE(result.is_success());
+}
+
+TEST_F(TwelveBoxesFactored, SolveFactoredShortestPath){
+  auto result = g_.SolveFactoredShortestPath(*source_, *transition_,
+    targets, options_);
+
+  ValidateResult(result);
+}
+
+TEST_F(TwelveBoxesFactored, SolveFactoredPartialConvexRestriction) {
+  auto result = g_.SolveFactoredPartialConvexRestriction(active_edges, *transition_,
+    targets, options_);
+
+  ValidateResult(result);
+}
+
 #pragma GCC diagnostic pop
 
 }  // namespace optimization
