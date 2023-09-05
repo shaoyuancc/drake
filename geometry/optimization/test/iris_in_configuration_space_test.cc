@@ -2,6 +2,7 @@
 
 #include "drake/common/find_resource.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
+#include "drake/common/test_utilities/maybe_pause_for_user.h"
 #include "drake/geometry/meshcat.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/geometry/optimization/iris.h"
@@ -16,18 +17,11 @@ namespace geometry {
 namespace optimization {
 namespace {
 
+using common::MaybePauseForUser;
 using Eigen::Vector2d;
 using symbolic::Variable;
 
 const double kInf = std::numeric_limits<double>::infinity();
-
-// Note: This will not pause execution when running as a bazel test, but when
-// running as a command-line executable, it will enable users to see the
-// visualization outputs.
-void MaybePauseForUser() {
-  std::cout << "[Press RETURN to continue]." << std::endl;
-  std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-}
 
 // Helper method for testing IrisInConfigurationSpace from a urdf string.
 HPolyhedron IrisFromUrdf(const std::string urdf,
@@ -270,16 +264,9 @@ GTEST_TEST(IrisInConfigurationSpaceTest, ConfigurationObstacles) {
   }
 }
 
-/* Box obstacles in all corners.
-┌─────┬─┬─────┐
-│     │ │     │
-│     │ │     │
-├─────┘ └─────┤
-│             │
-├─────┐ ┌─────┤
-│     │ │     │
-│     │ │     │
-└─────┴─┴─────┘ */
+/* Box in 2D. A box is free to translate in x and y, and has joint limits
+restricting the range in y and collision geometries restricting the range in x.
+*/
 const char boxes_in_2d_urdf[] = R"""(
 <robot name="boxes">
   <link name="fixed">

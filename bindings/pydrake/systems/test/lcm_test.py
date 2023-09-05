@@ -151,7 +151,8 @@ class TestSystemsLcm(unittest.TestCase):
     def test_subscriber(self):
         lcm = DrakeLcm()
         dut = mut.LcmSubscriberSystem.Make(
-            channel="TEST_CHANNEL", lcm_type=lcmt_quaternion, lcm=lcm)
+            channel="TEST_CHANNEL", lcm_type=lcmt_quaternion, lcm=lcm,
+            wait_for_message_on_initialization_timeout=0.0)
         model_message = self._model_message()
         lcm.Publish(channel="TEST_CHANNEL", buffer=model_message.encode())
         lcm.HandleSubscriptions(0)
@@ -172,7 +173,8 @@ class TestSystemsLcm(unittest.TestCase):
         lcm = DrakeLcm()
         dut = mut.LcmSubscriberSystem.Make(
             channel="TEST_CHANNEL", lcm_type=lcmt_quaternion, lcm=lcm,
-            use_cpp_serializer=True)
+            use_cpp_serializer=True,
+            wait_for_message_on_initialization_timeout=0.0)
         model_message = self._model_message()
         lcm.Publish(channel="TEST_CHANNEL", buffer=model_message.encode())
         lcm.HandleSubscriptions(0)
@@ -288,6 +290,12 @@ class TestSystemsLcm(unittest.TestCase):
             publish_period=0.001)
         self.assertIsInstance(scope, mut.LcmScopeSystem)
         self.assertIsInstance(publisher, mut.LcmPublisherSystem)
+
+    def test_lcm_interface_system_getters(self):
+        lcm = DrakeLcm()
+        lcm_system = mut.LcmInterfaceSystem(lcm=lcm)
+        self.assertIsInstance(lcm_system.get_lcm_url(), str)
+        self.assertEqual(lcm_system.HandleSubscriptions(timeout_millis=10), 0)
 
     def test_lcm_interface_system_diagram(self):
         # First, check the class doc.

@@ -1,6 +1,7 @@
 load("@drake//tools/workspace:mirrors.bzl", "DEFAULT_MIRRORS")
 load("@drake//tools/workspace:os.bzl", "os_repository")
 load("@drake//tools/workspace/abseil_cpp_internal:repository.bzl", "abseil_cpp_internal_repository")  # noqa
+load("@drake//tools/workspace/bazelisk:repository.bzl", "bazelisk_repository")
 load("@drake//tools/workspace/bazel_skylib:repository.bzl", "bazel_skylib_repository")  # noqa
 load("@drake//tools/workspace/blas:repository.bzl", "blas_repository")
 load("@drake//tools/workspace/buildifier:repository.bzl", "buildifier_repository")  # noqa
@@ -8,6 +9,8 @@ load("@drake//tools/workspace/cc:repository.bzl", "cc_repository")
 load("@drake//tools/workspace/ccd_internal:repository.bzl", "ccd_internal_repository")  # noqa
 load("@drake//tools/workspace/clang_cindex_python3_internal:repository.bzl", "clang_cindex_python3_internal_repository")  # noqa
 load("@drake//tools/workspace/clp:repository.bzl", "clp_repository")
+load("@drake//tools/workspace/clp_internal:repository.bzl", "clp_internal_repository")  # noqa
+load("@drake//tools/workspace/coinutils_internal:repository.bzl", "coinutils_internal_repository")  # noqa
 load("@drake//tools/workspace/com_jidesoft_jide_oss:repository.bzl", "com_jidesoft_jide_oss_repository")  # noqa
 load("@drake//tools/workspace/common_robotics_utilities:repository.bzl", "common_robotics_utilities_repository")  # noqa
 load("@drake//tools/workspace/commons_io:repository.bzl", "commons_io_repository")  # noqa
@@ -102,6 +105,7 @@ load("@drake//tools/workspace/uwebsockets:repository.bzl", "uwebsockets_reposito
 load("@drake//tools/workspace/uwebsockets_internal:repository.bzl", "uwebsockets_internal_repository")  # noqa
 load("@drake//tools/workspace/voxelized_geometry_tools:repository.bzl", "voxelized_geometry_tools_repository")  # noqa
 load("@drake//tools/workspace/vtk:repository.bzl", "vtk_repository")
+load("@drake//tools/workspace/vtk_internal:repository.bzl", "vtk_internal_repository")  # noqa
 load("@drake//tools/workspace/x11:repository.bzl", "x11_repository")
 load("@drake//tools/workspace/xmlrunner_py:repository.bzl", "xmlrunner_py_repository")  # noqa
 load("@drake//tools/workspace/yaml_cpp_internal:repository.bzl", "yaml_cpp_internal_repository")  # noqa
@@ -119,6 +123,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     """
     if "abseil_cpp_internal" not in excludes:
         abseil_cpp_internal_repository(name = "abseil_cpp_internal", mirrors = mirrors)  # noqa
+    if "bazelisk" not in excludes:
+        bazelisk_repository(name = "bazelisk", mirrors = mirrors)
     if "bazel_skylib" not in excludes:
         bazel_skylib_repository(name = "bazel_skylib", mirrors = mirrors)
     if "blas" not in excludes:
@@ -132,7 +138,13 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "clang_cindex_python3_internal" not in excludes:
         clang_cindex_python3_internal_repository(name = "clang_cindex_python3_internal", mirrors = mirrors)  # noqa
     if "clp" not in excludes:
+        # The @clp external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2023-12-01.
         clp_repository(name = "clp")
+    if "clp_internal" not in excludes:
+        clp_internal_repository(name = "clp_internal", mirrors = mirrors)
+    if "coinutils_internal" not in excludes:
+        coinutils_internal_repository(name = "coinutils_internal", mirrors = mirrors)  # noqa
     if "com_jidesoft_jide_oss" not in excludes:
         com_jidesoft_jide_oss_repository(name = "com_jidesoft_jide_oss", mirrors = mirrors)  # noqa
     if "common_robotics_utilities" not in excludes:
@@ -344,6 +356,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
         voxelized_geometry_tools_repository(name = "voxelized_geometry_tools", mirrors = mirrors)  # noqa
     if "vtk" not in excludes:
         vtk_repository(name = "vtk", mirrors = mirrors)
+    if "vtk_internal" not in excludes:
+        vtk_internal_repository(name = "vtk_internal", mirrors = mirrors)
     if "x11" not in excludes:
         x11_repository(name = "x11")
     if "xmlrunner_py" not in excludes:
