@@ -7,19 +7,20 @@
 #include <vector>
 
 // To ease build system upkeep, we annotate VTK includes with their deps.
+#include <vtkActor.h>                // vtkRenderingCore
 #include <vtkAutoInit.h>             // vtkCommonCore
 #include <vtkCommand.h>              // vtkCommonCore
 #include <vtkImageExport.h>          // vtkIOImage
 #include <vtkLight.h>                // vtkRenderingCore
 #include <vtkNew.h>                  // vtkCommonCore
 #include <vtkPolyDataAlgorithm.h>    // vtkCommonExecutionModel
-#include <vtkProp3D.h>               // vtkRenderingCore
 #include <vtkRenderWindow.h>         // vtkRenderingCore
 #include <vtkRenderer.h>             // vtkRenderingCore
 #include <vtkShaderProgram.h>        // vtkRenderingOpenGL2
 #include <vtkSmartPointer.h>         // vtkCommonCore
 #include <vtkWindowToImageFilter.h>  // vtkRenderingCore
 
+#include "drake/common/diagnostic_policy.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_export.h"
 #include "drake/common/reset_on_copy.h"
@@ -135,15 +136,6 @@ class DRAKE_NO_EXPORT RenderEngineVtk : public render::RenderEngine,
   //@}
 
  protected:
-  /* Returns all props registered with the engine, keyed by the SceneGraph
-   GeometryId. Each GeometryId maps to a triple of props: color, depth, and
-   label. The prop will either be a `vtkActor` or `vtkAssembly`. */
-  const std::unordered_map<GeometryId,
-                           std::array<vtkSmartPointer<vtkProp3D>, 3>>&
-  props() const {
-    return props_;
-  }
-
   /* Copy constructor for the purpose of cloning. */
   RenderEngineVtk(const RenderEngineVtk& other);
 
@@ -232,15 +224,62 @@ class DRAKE_NO_EXPORT RenderEngineVtk : public render::RenderEngine,
                      const RegistrationData& data);
 
  private:
+  friend class RenderEngineVtkTester;
+
   // Initializes the VTK pipelines.
   void InitializePipelines();
 
-  // Performs the common setup for all shape types.
+  // Performs the common setup for all shape types. Note, this can be called
+  // multiple times for a single value of data.id. It will simply accumulate
+  // multiple parts in the Prop associated with the geometry id.
   void ImplementPolyData(vtkPolyDataAlgorithm* source,
                          const geometry::internal::RenderMaterial& material,
                          const RegistrationData& data);
 
   void SetDefaultLightPosition(const Vector3<double>& p_DL) override;
+
+  // Configures the render engine to require all materials to use PBR
+  // interpolation. This can be mindlessly called repeatedly without harm.
+  // It should be invoked any time a necessary condition is encountered to
+  // ensure proper materials:
+  //
+  //   1) If any glTF model has been added.
+  //   2) If an environment map has been added.
+  //
+  // Note: this affects *all* objects, whether or not a model has been
+  // introduced that explicitly declares PBR materials.
+  void SetPbrMaterials();
+
+  // A geometry is modeled with one or more "parts". A part maps to the actor
+  // representing it in VTK and an optional transform mapping the actor's frame
+  // A to the Drake geometry frame G. This mapping can include scaling terms.
+  // If T_GA = I, then `T_GA` is set to nullptr. Otherwise, posing the actor
+  // using geometry's world pose X_WG should set the transform to
+  // T_WA = X_WG * T_GA.
+  struct Part {
+    vtkSmartPointer<vtkActor> actor;
+    vtkSmartPointer<vtkMatrix4x4> T_GA;
+  };
+
+  // Some geometries are represented by multiple parts (such as when importing
+  // a complex glTF file). A "prop" is the collection of parts which constitute
+  // one visual geometry associated with a GeometryId.
+  //
+  // For simple Drake primitives, there will be a single "part".
+  //
+  // Note: this is conceptually similar to vtkAssembly. But do *not* use
+  // vtkAssembly. It is incredibly buggy and causes rendering problems. See:
+  // https://discourse.vtk.org/t/vtkgltfimporter-loads-textures-upside-down/12113
+  // https://discourse.vtk.org/t/bug-in-vtkgltfexporter/12052
+  struct Prop {
+    std::vector<Part> parts;
+  };
+
+  // Three pipelines: rgb, depth, and label.
+  static constexpr int kNumPipelines = 3;
+
+  // Each geometry is represented by one "prop" per pipeline.
+  using PropArray = std::array<Prop, kNumPipelines>;
 
   // Handles the logic for using the lights defined in the construction
   // parameters vs the built-in fallback light. The implementation should only
@@ -250,15 +289,16 @@ class DRAKE_NO_EXPORT RenderEngineVtk : public render::RenderEngine,
     if (!parameters_.lights.empty()) {
       return parameters_.lights;
     }
-    DRAKE_DEMAND(!fallback_lights_.empty());
+    // fallback_lights_ may be empty if the user has specified an environment
+    // map.
     return fallback_lights_;
   }
 
-  // Three pipelines: rgb, depth, and label.
-  static constexpr int kNumPipelines = 3;
-
   // The engine's configuration parameters.
   const RenderEngineVtkParams parameters_;
+
+  // VTK error and/or warning messages end up here.
+  drake::internal::DiagnosticPolicy diagnostic_;
 
   std::array<std::unique_ptr<RenderingPipeline>, kNumPipelines> pipelines_;
 
@@ -284,30 +324,23 @@ class DRAKE_NO_EXPORT RenderEngineVtk : public render::RenderEngine,
   // The color to clear the color buffer to.
   systems::sensors::ColorD default_clear_color_;
 
-  // TODO(SeanCurtis-TRI): when vtkGLTFExporter handles vtkAssembly correctly,
-  // then we can just make everything an assembly and not have to worry about
-  // heterogeneity and the base class of vtkProp3D.
-
-  // Each geometry is represented by one "3D property" per pipeline. That
-  // property (or "prop") can be either an actor or an assembly. But it will be
-  // the same type in all entries of the array.
-  using PropArray = std::array<vtkSmartPointer<vtkProp3D>, kNumPipelines>;
-
   // The collection of per-geometry actors -- one actor per pipeline (color,
   // depth, and label) -- keyed by the geometry's GeometryId.
   std::unordered_map<GeometryId, PropArray> props_;
-
-  // The collection of per-geometry actors (one actor per pipeline (color,
-  // depth, and label) keyed by the geometry's GeometryId.
-  std::unordered_map<GeometryId, std::array<vtkSmartPointer<vtkActor>, 3>>
-      actors_;
 
   // Lights can be defined in the engine parameters. If no lights are defined,
   // we use the fallback_lights. Otherwise, we use the parameter lights.
   // Note: We are initializing this vector with a *single* light by using the
   // LightParameter default constructor; it has been specifically designed to
   // serve as the default light.
-  std::vector<render::LightParameter> fallback_lights_{{}};
+  std::vector<render::LightParameter> fallback_lights_{};
+
+  // If true, all newly created objects use pbr materials. As an invariant,
+  // setting this to true should retroactively make all previously created
+  // objects also use PBR materials (see SetPbrMaterials).
+  // If false, the behavior is undefined -- the interpolation model is left to
+  // VTK's default value.
+  bool use_pbr_materials_{false};
 };
 
 }  // namespace internal

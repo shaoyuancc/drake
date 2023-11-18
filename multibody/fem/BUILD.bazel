@@ -28,6 +28,7 @@ drake_cc_package_library(
         ":fem_element",
         ":fem_indexes",
         ":fem_model",
+        ":fem_plant_data",
         ":fem_solver",
         ":fem_state",
         ":fem_state_system",
@@ -38,7 +39,6 @@ drake_cc_package_library(
         ":linear_corotated_model_data",
         ":linear_simplex_element",
         ":matrix_utilities",
-        ":petsc_symmetric_block_sparse_matrix",
         ":quadrature",
         ":schur_complement",
         ":simplex_gaussian_quadrature",
@@ -168,7 +168,6 @@ drake_cc_library(
     ],
     deps = [
         ":fem_state",
-        ":petsc_symmetric_block_sparse_matrix",
         "//common:essential",
         "//multibody/contact_solvers:block_sparse_lower_triangular_or_symmetric_matrix",  # noqa
     ],
@@ -213,6 +212,7 @@ drake_cc_library(
         ":constitutive_model",
         ":damping_model",
         ":fem_indexes",
+        ":fem_plant_data",
         ":fem_state",
         "//common:essential",
     ],
@@ -231,10 +231,26 @@ drake_cc_library(
     deps = [
         ":dirichlet_boundary_condition",
         ":fem_element",
+        ":fem_plant_data",
         ":fem_state",
-        ":petsc_symmetric_block_sparse_matrix",
         "//common:essential",
         "//multibody/contact_solvers:block_sparse_lower_triangular_or_symmetric_matrix",  # noqa
+    ],
+)
+
+drake_cc_library(
+    name = "fem_plant_data",
+    srcs = [
+        "fem_plant_data.cc",
+    ],
+    hdrs = [
+        "fem_plant_data.h",
+    ],
+    deps = [
+        "//common:default_scalars",
+        "//common:essential",
+        "//multibody/plant:force_density_field",
+        "//systems/framework:context",
     ],
 )
 
@@ -249,6 +265,7 @@ drake_cc_library(
     deps = [
         ":discrete_time_integrator",
         ":fem_model",
+        ":fem_plant_data",
         "//common:essential",
         "//multibody/contact_solvers:block_sparse_cholesky_solver",
         "//multibody/contact_solvers:block_sparse_lower_triangular_or_symmetric_matrix",  # noqa
@@ -390,24 +407,6 @@ drake_cc_library(
     deps = [
         "//common:default_scalars",
         "//common:essential",
-    ],
-)
-
-drake_cc_library(
-    name = "petsc_symmetric_block_sparse_matrix",
-    srcs = [
-        "petsc_symmetric_block_sparse_matrix.cc",
-    ],
-    hdrs = [
-        "petsc_symmetric_block_sparse_matrix.h",
-    ],
-    interface_deps = [
-        ":schur_complement",
-        "//common:essential",
-    ],
-    deps = [
-        "//common:unused",
-        "@petsc//:petsc_nowarn",
     ],
 )
 
@@ -626,6 +625,7 @@ drake_cc_googletest(
     name = "fem_element_test",
     deps = [
         ":dummy_element",
+        "//multibody/plant",
     ],
 )
 
@@ -640,6 +640,7 @@ drake_cc_googletest(
         ":volumetric_model",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
+        "//multibody/plant",
     ],
 )
 
@@ -660,6 +661,7 @@ drake_cc_googletest(
         ":fem_state",
         ":fem_state_system",
         "//common/test_utilities:expect_throws_message",
+        "//multibody/plant",
     ],
 )
 
@@ -733,15 +735,6 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
-    name = "petsc_symmetric_block_sparse_matrix_test",
-    deps = [
-        ":petsc_symmetric_block_sparse_matrix",
-        "//common/test_utilities:eigen_matrix_compare",
-        "//common/test_utilities:expect_throws_message",
-    ],
-)
-
-drake_cc_googletest(
     name = "schur_complement_test",
     deps = [
         ":schur_complement",
@@ -766,6 +759,7 @@ drake_cc_googletest(
         "//common/test_utilities:eigen_matrix_compare",
         "//math:geometric_transform",
         "//math:gradient",
+        "//multibody/plant",
     ],
 )
 

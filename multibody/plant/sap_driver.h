@@ -49,6 +49,9 @@ struct ContactProblemCache {
   }
   copyable_unique_ptr<contact_solvers::internal::SapContactProblem<T>>
       sap_problem;
+  // Start/end constraint index for PD controller constraints in sap_problem.
+  int pd_controller_constraints_start{0};
+  int num_pd_controller_constraints{0};
 
   copyable_unique_ptr<contact_solvers::internal::SapContactProblem<T>>
       sap_problem_locked;
@@ -103,6 +106,12 @@ class SapDriver {
   // forces.
   void CalcDiscreteUpdateMultibodyForces(const systems::Context<T>& context,
                                          MultibodyForces<T>* forces) const;
+
+  // Computes the actuation applied to the multibody system when stepping the
+  // discrete dynamics from the state stored in `context`. This includes the
+  // actuation from implicit PD controllers.
+  void CalcActuation(const systems::Context<T>& context,
+                     VectorX<T>* actuation) const;
 
  private:
   // Provide private access for unit testing only.
@@ -176,6 +185,24 @@ class SapDriver {
   // @throws std::exception if both bodies have invalid tree indices from the
   // tree topology (i.e. both bodies are welded to `world`).
   void AddBallConstraints(
+      const systems::Context<T>& context,
+      contact_solvers::internal::SapContactProblem<T>* problem) const;
+
+  // Adds holonomic constraint equations to model weld constraints specified in
+  // the MultibodyPlant.
+  // @throws std::exception if both bodies have invalid tree indices from the
+  // tree topology (i.e. body bodies are welded to `world`).
+  void AddWeldConstraints(
+      const systems::Context<T>& context,
+      contact_solvers::internal::SapContactProblem<T>* problem) const;
+
+  void AddPdControllerConstraints(
+      const systems::Context<T>& context,
+      contact_solvers::internal::SapContactProblem<T>* problem) const;
+
+  // Adds holonomic constraints to model fixed constraints for deformable bodies
+  // specified in the DeformableModel.
+  void AddFixedConstraints(
       const systems::Context<T>& context,
       contact_solvers::internal::SapContactProblem<T>* problem) const;
 

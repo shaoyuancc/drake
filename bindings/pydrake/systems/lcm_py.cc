@@ -2,7 +2,6 @@
 
 #include "pybind11/eval.h"
 
-#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/systems/lcm_py_bind_cpp_serializers.h"
@@ -21,6 +20,7 @@ namespace pydrake {
 
 using lcm::DrakeLcm;
 using lcm::DrakeLcmInterface;
+using lcm::DrakeLcmParams;
 using pysystems::pylcm::BindCppSerializers;
 using systems::lcm::SerializerInterface;
 
@@ -39,14 +39,6 @@ class PySerializerInterface : public py::wrapper<SerializerInterface> {
   // Python implementations of the class (whose inheritance will pass through
   // `PySerializerInterface`). C++ implementations will use the bindings on the
   // interface below.
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  std::unique_ptr<SerializerInterface> Clone() const override {
-    PYBIND11_OVERLOAD_PURE(
-        std::unique_ptr<SerializerInterface>, SerializerInterface, Clone);
-  }
-#pragma GCC diagnostic pop
 
   std::unique_ptr<AbstractValue> CreateDefaultValue() const override {
     PYBIND11_OVERLOAD_PURE(std::unique_ptr<AbstractValue>, SerializerInterface,
@@ -156,24 +148,6 @@ PYBIND11_MODULE(lcm, m) {
                   message_bytes.size());
             },
             py::arg("abstract_value"), cls_doc.Serialize.doc);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    constexpr char kCloneDeprecation[] =
-        "PySerializer objects are immutable, there is no need to copy nor "
-        "clone them. The deprecated code will be removed from Drake on or "
-        "after 2023-09-01.";
-    cls  // BR
-        .def("Clone", WrapDeprecated(kCloneDeprecation, &Class::Clone),
-            kCloneDeprecation)
-        .def("__copy__", WrapDeprecated(kCloneDeprecation, &Class::Clone),
-            kCloneDeprecation)
-        .def("__deepcopy__",
-            WrapDeprecated(kCloneDeprecation,
-                [](const Class* self, py::dict /* memo */) {
-                  return self->Clone();
-                }),
-            kCloneDeprecation);
-#pragma GCC diagnostic pop
   }
 
   {
@@ -181,6 +155,12 @@ PYBIND11_MODULE(lcm, m) {
     constexpr auto& cls_doc = doc.LcmBuses;
     py::class_<Class> cls(m, "LcmBuses");
     cls  // BR
+        .def_readonly_static("kLcmUrlMemqNull", &Class::kLcmUrlMemqNull
+            // TODO(jwnimmer-tri) The `cls_doc.kLcmUrlMemqNull.doc` docstring
+            // constant is absent for some unknown reason, but it wouldn't help
+            // anyway because pybind11 throws away docs on static constants:
+            // https://github.com/pybind/pybind11/issues/1111
+            )
         .def(py::init(), cls_doc.ctor.doc)
         .def("size", &Class::size, cls_doc.size.doc)
         .def("Find", &Class::Find, py::arg("description_of_caller"),
@@ -192,8 +172,11 @@ PYBIND11_MODULE(lcm, m) {
             py::keep_alive<1, 3>(), cls_doc.Add.doc);
   }
 
-  m.def("ApplyLcmBusConfig", &ApplyLcmBusConfig, py::arg("lcm_buses"),
-      py::arg("builder"), doc.ApplyLcmBusConfig.doc);
+  m.def("ApplyLcmBusConfig",
+      py::overload_cast<
+          const std::map<std::string, std::optional<DrakeLcmParams>>&,
+          systems::DiagramBuilder<double>*>(&ApplyLcmBusConfig),
+      py::arg("lcm_buses"), py::arg("builder"), doc.ApplyLcmBusConfig.doc);
 
   {
     using Class = LcmPublisherSystem;

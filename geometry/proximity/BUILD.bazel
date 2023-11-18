@@ -1,5 +1,6 @@
 load(
-    "@drake//tools/skylark:drake_cc.bzl",
+    "//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
     "drake_cc_googletest",
     "drake_cc_library",
     "drake_cc_package_library",
@@ -19,8 +20,10 @@ drake_cc_package_library(
         ":contact_surface_utility",
         ":deformable_contact_geometries",
         ":deformable_contact_internal",
+        ":deformable_field_intersection",
         ":deformable_mesh_intersection",
         ":deformable_volume_mesh",
+        ":detect_zero_simplex",
         ":field_intersection",
         ":hydroelastic_internal",
         ":make_box_field",
@@ -193,6 +196,19 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "deformable_field_intersection",
+    srcs = ["deformable_field_intersection.cc"],
+    hdrs = ["deformable_field_intersection.h"],
+    deps = [
+        ":deformable_contact_geometries",
+        ":field_intersection",
+        ":mesh_field",
+        "//geometry:geometry_ids",
+        "//geometry/query_results:deformable_contact",
+    ],
+)
+
+drake_cc_library(
     name = "deformable_mesh_intersection",
     srcs = ["deformable_mesh_intersection.cc"],
     hdrs = ["deformable_mesh_intersection.h"],
@@ -216,6 +232,17 @@ drake_cc_library(
         ":bvh_updater",
         ":mesh_deformer",
         ":volume_mesh",
+    ],
+)
+
+drake_cc_library(
+    name = "detect_zero_simplex",
+    srcs = ["detect_zero_simplex.cc"],
+    hdrs = ["detect_zero_simplex.h"],
+    deps = [
+        ":volume_mesh",
+        ":volume_to_surface_mesh",
+        "//common:sorted_pair",
     ],
 )
 
@@ -819,9 +846,29 @@ drake_cc_library(
     ],
     deps = [
         "@fmt",
-        "@vtk//:vtkCommonCore",
-        "@vtk//:vtkCommonDataModel",
-        "@vtk//:vtkIOLegacy",
+        "@vtk_internal//:vtkCommonCore",
+        "@vtk_internal//:vtkCommonDataModel",
+        "@vtk_internal//:vtkIOLegacy",
+    ],
+)
+
+drake_cc_binary(
+    name = "zero_simplex_manual_test",
+    testonly = 1,
+    srcs = ["test/zero_simplex_manual_test.cc"],
+    add_test_rule = 1,
+    data = [
+        "//geometry:test_vtk_files",
+    ],
+    test_rule_args = [
+        "--expect_fail",
+        "geometry/test/one_tetrahedron.vtk",
+    ],
+    deps = [
+        ":detect_zero_simplex",
+        ":vtk_to_volume_mesh",
+        "//common:add_text_logging_gflags",
+        "@gflags",
     ],
 )
 
@@ -951,6 +998,15 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "deformable_field_intersection_test",
+    deps = [
+        ":deformable_field_intersection",
+        ":make_box_mesh",
+        ":volume_mesh",
+    ],
+)
+
+drake_cc_googletest(
     name = "deformable_mesh_intersection_test",
     deps = [
         ":deformable_mesh_intersection",
@@ -966,6 +1022,15 @@ drake_cc_googletest(
         ":deformable_volume_mesh",
         ":make_box_mesh",
         "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest(
+    name = "detect_zero_simplex_test",
+    deps = [
+        ":detect_zero_simplex",
+        ":make_cylinder_mesh",
+        ":mesh_to_vtk",
     ],
 )
 

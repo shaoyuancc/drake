@@ -1,5 +1,6 @@
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_geometry_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/common/identifier_pybind.h"
@@ -281,7 +282,10 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.AddDistanceConstraint.doc)
         .def("AddBallConstraint", &Class::AddBallConstraint, py::arg("body_A"),
             py::arg("p_AP"), py::arg("body_B"), py::arg("p_BQ"),
-            py_rvp::reference_internal, cls_doc.AddBallConstraint.doc);
+            py_rvp::reference_internal, cls_doc.AddBallConstraint.doc)
+        .def("AddWeldConstraint", &Class::AddWeldConstraint, py::arg("body_A"),
+            py::arg("X_AP"), py::arg("body_B"), py::arg("X_BQ"),
+            py_rvp::reference_internal, cls_doc.AddWeldConstraint.doc);
     // Mathy bits
     cls  // BR
         .def(
@@ -714,12 +718,20 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("get_joint_actuator", &Class::get_joint_actuator,
             py::arg("actuator_index"), py_rvp::reference_internal,
             cls_doc.get_joint_actuator.doc)
+        .def("get_mutable_joint_actuator", &Class::get_mutable_joint_actuator,
+            py::arg("actuator_index"), py_rvp::reference_internal,
+            cls_doc.get_mutable_joint_actuator.doc)
         .def("get_frame", &Class::get_frame, py::arg("frame_index"),
             py_rvp::reference_internal, cls_doc.get_frame.doc)
         .def("gravity_field", &Class::gravity_field, py_rvp::reference_internal,
             cls_doc.gravity_field.doc)
         .def("mutable_gravity_field", &Class::mutable_gravity_field,
             py_rvp::reference_internal, cls_doc.mutable_gravity_field.doc)
+        .def("set_gravity_enabled", &Class::set_gravity_enabled,
+            py::arg("model_instance"), py::arg("is_enabled"),
+            cls_doc.set_gravity_enabled.doc)
+        .def("is_gravity_enabled", &Class::is_gravity_enabled,
+            py::arg("model_instance"), cls_doc.is_gravity_enabled.doc)
         .def("GetJointIndices", &Class::GetJointIndices,
             py::arg("model_instance"), cls_doc.GetJointIndices.doc)
         .def("GetJointActuatorIndices", &Class::GetJointActuatorIndices,
@@ -904,6 +916,22 @@ void DoScalarDependentDefinitions(py::module m, T) {
                 ModelInstanceIndex>(&Class::get_actuation_input_port),
             py::arg("model_instance"), py_rvp::reference_internal,
             cls_doc.get_actuation_input_port.doc_1args)
+        .def("get_net_actuation_output_port",
+            overload_cast_explicit<const systems::OutputPort<T>&>(
+                &Class::get_net_actuation_output_port),
+            py_rvp::reference_internal,
+            cls_doc.get_net_actuation_output_port.doc_0args)
+        .def("get_net_actuation_output_port",
+            overload_cast_explicit<const systems::OutputPort<T>&,
+                ModelInstanceIndex>(&Class::get_net_actuation_output_port),
+            py::arg("model_instance"), py_rvp::reference_internal,
+            cls_doc.get_net_actuation_output_port.doc_1args)
+        .def("get_desired_state_input_port",
+            overload_cast_explicit<const systems::InputPort<T>&,
+                multibody::ModelInstanceIndex>(
+                &Class::get_desired_state_input_port),
+            py::arg("model_instance"), py_rvp::reference_internal,
+            cls_doc.get_desired_state_input_port.doc)
         .def("get_applied_generalized_force_input_port",
             overload_cast_explicit<const systems::InputPort<T>&>(
                 &Class::get_applied_generalized_force_input_port),
@@ -1018,36 +1046,43 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.get_contact_penalty_method_time_scale.doc)
         .def("set_stiction_tolerance", &Class::set_stiction_tolerance,
             py::arg("v_stiction") = 0.001, cls_doc.set_stiction_tolerance.doc);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     // Position and velocity accessors and mutators.
     cls  // BR
-        .def(
-            "GetMutablePositionsAndVelocities",
-            [](const MultibodyPlant<T>* self,
-                Context<T>* context) -> Eigen::Ref<VectorX<T>> {
-              return self->GetMutablePositionsAndVelocities(context);
-            },
+        .def("GetMutablePositionsAndVelocities",
+            WrapDeprecated(
+                cls_doc.GetMutablePositionsAndVelocities.doc_deprecated,
+                [](const MultibodyPlant<T>* self,
+                    Context<T>* context) -> Eigen::Ref<VectorX<T>> {
+                  return self->GetMutablePositionsAndVelocities(context);
+                }),
             py_rvp::reference, py::arg("context"),
             // Keep alive, ownership: `return` keeps `context` alive.
             py::keep_alive<0, 2>(),
-            cls_doc.GetMutablePositionsAndVelocities.doc)
-        .def(
-            "GetMutablePositions",
-            [](const MultibodyPlant<T>* self,
-                Context<T>* context) -> Eigen::Ref<VectorX<T>> {
-              return self->GetMutablePositions(context);
-            },
+            cls_doc.GetMutablePositionsAndVelocities.doc_deprecated)
+        .def("GetMutablePositions",
+            WrapDeprecated(cls_doc.GetMutablePositions.doc_deprecated_1args,
+                [](const MultibodyPlant<T>* self,
+                    Context<T>* context) -> Eigen::Ref<VectorX<T>> {
+                  return self->GetMutablePositions(context);
+                }),
             py_rvp::reference, py::arg("context"),
             // Keep alive, ownership: `return` keeps `context` alive.
-            py::keep_alive<0, 2>(), cls_doc.GetMutablePositions.doc_1args)
-        .def(
-            "GetMutableVelocities",
-            [](const MultibodyPlant<T>* self,
-                Context<T>* context) -> Eigen::Ref<VectorX<T>> {
-              return self->GetMutableVelocities(context);
-            },
+            py::keep_alive<0, 2>(),
+            cls_doc.GetMutablePositions.doc_deprecated_1args)
+        .def("GetMutableVelocities",
+            WrapDeprecated(cls_doc.GetMutableVelocities.doc_deprecated_1args,
+                [](const MultibodyPlant<T>* self,
+                    Context<T>* context) -> Eigen::Ref<VectorX<T>> {
+                  return self->GetMutableVelocities(context);
+                }),
             py_rvp::reference, py::arg("context"),
             // Keep alive, ownership: `return` keeps `context` alive.
-            py::keep_alive<0, 2>(), cls_doc.GetMutableVelocities.doc_1args)
+            py::keep_alive<0, 2>(),
+            cls_doc.GetMutableVelocities.doc_deprecated_1args);
+#pragma GCC diagnostic pop
+    cls  // BR
         .def(
             "GetPositions",
             [](const MultibodyPlant<T>* self, const Context<T>& context)

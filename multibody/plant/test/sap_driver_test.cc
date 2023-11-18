@@ -123,13 +123,13 @@ class SpheresStackTest : public SpheresStack, public ::testing::Test {
     return CompliantContactManagerTester::topology(*contact_manager_);
   }
 
-  const std::vector<DiscreteContactPair<double>>& EvalDiscreteContactPairs(
-      const Context<double>& context) const {
+  const DiscreteContactData<DiscreteContactPair<double>>&
+  EvalDiscreteContactPairs(const Context<double>& context) const {
     return CompliantContactManagerTester::EvalDiscreteContactPairs(
         *contact_manager_, context);
   }
 
-  std::vector<ContactPairKinematics<double>> CalcContactKinematics(
+  DiscreteContactData<ContactPairKinematics<double>> CalcContactKinematics(
       const Context<double>& context) const {
     return CompliantContactManagerTester::CalcContactKinematics(
         *contact_manager_, context);
@@ -146,7 +146,7 @@ TEST_F(SpheresStackTest, EvalContactProblemCache) {
   const std::vector<drake::math::RotationMatrix<double>>& R_WC =
       problem_cache.R_WC;
 
-  const std::vector<DiscreteContactPair<double>>& pairs =
+  const DiscreteContactData<DiscreteContactPair<double>>& pairs =
       EvalDiscreteContactPairs(*plant_context_);
   const int num_contacts = pairs.size();
 
@@ -165,9 +165,9 @@ TEST_F(SpheresStackTest, EvalContactProblemCache) {
   EXPECT_EQ(problem.dynamics_matrix(), A);
 
   // Verify each of the contact constraints.
-  const std::vector<ContactPairKinematics<double>> contact_kinematics =
+  const DiscreteContactData<ContactPairKinematics<double>> contact_kinematics =
       CalcContactKinematics(*plant_context_);
-  for (size_t i = 0; i < contact_kinematics.size(); ++i) {
+  for (int i = 0; i < contact_kinematics.size(); ++i) {
     const DiscreteContactPair<double>& discrete_pair = pairs[i];
     const ContactPairKinematics<double>& pair_kinematics =
         contact_kinematics[i];
@@ -287,9 +287,9 @@ TEST_F(SpheresStackTest, CalcLinearDynamicsMatrix) {
   const int nv = plant_->num_velocities();
   MatrixXd Adense = MatrixXd::Zero(nv, nv);
   for (TreeIndex t(0); t < topology().num_trees(); ++t) {
-    const int tree_start = topology().tree_velocities_start(t);
+    const int tree_start_in_v = topology().tree_velocities_start_in_v(t);
     const int tree_nv = topology().num_tree_velocities(t);
-    Adense.block(tree_start, tree_start, tree_nv, tree_nv) = A[t];
+    Adense.block(tree_start_in_v, tree_start_in_v, tree_nv, tree_nv) = A[t];
   }
   MatrixXd Aexpected(nv, nv);
   plant_->CalcMassMatrix(*plant_context_, &Aexpected);
@@ -305,7 +305,7 @@ TEST_F(SpheresStackTest, PackContactSolverResults) {
 
   // We form an arbitrary set of SAP results consistent with the contact
   // kinematics for the configuration of our model.
-  const std::vector<ContactPairKinematics<double>> contact_kinematics =
+  const DiscreteContactData<ContactPairKinematics<double>> contact_kinematics =
       CalcContactKinematics(*plant_context_);
   const int num_contacts = contact_kinematics.size();
   const int nv = plant_->num_velocities();
@@ -358,6 +358,19 @@ TEST_F(SpheresStackTest, SapFailureException) {
                               "The SAP solver failed to converge(.|\n)*");
 }
 
+// Test that EvalContactSolverResults gives the same answer with caching on or
+// off.
+TEST_F(SpheresStackTest, EvalContactSolverResults) {
+  SetupRigidGroundCompliantSphereAndNonHydroSphere();
+  const ContactSolverResults<double> contact_results_with_cache =
+      contact_manager_->EvalContactSolverResults(*plant_context_);
+  plant_context_->DisableCaching();
+  const ContactSolverResults<double> contact_results_without_cache =
+      contact_manager_->EvalContactSolverResults(*plant_context_);
+  EXPECT_EQ(contact_results_with_cache.v_next,
+            contact_results_without_cache.v_next);
+}
+
 // Unit test that the manager is forwarded the active status of each constraint
 // and produces a SapContactProblem with only the active constraints and
 // recalculates the cached SapContactProblem with constraint parameters change.
@@ -380,14 +393,16 @@ GTEST_TEST(SapDriverTest, ConstraintActiveStatus) {
       "A_B", body_A, RigidTransformd::Identity(), body_B,
       RigidTransformd::Identity(), Vector3d::UnitZ());
 
-  // Add one coupler constraint, one distance constraint, and one ball
-  // constraint.
+  // Add one coupler constraint, one distance constraint, one ball
+  // constraint and one weld constraint.
   MultibodyConstraintId coupler_constraint_id =
       plant.AddCouplerConstraint(world_A, A_B, 1.2);
   MultibodyConstraintId distance_constraint_id = plant.AddDistanceConstraint(
       body_A, Vector3d::Zero(), body_B, Vector3d(1.0, 2.0, 3.0), 1.0);
   MultibodyConstraintId ball_constraint_id = plant.AddBallConstraint(
       body_A, Vector3d::Zero(), body_B, Vector3d::Zero());
+  MultibodyConstraintId weld_constraint_id = plant.AddWeldConstraint(
+      body_A, RigidTransformd(), body_B, RigidTransformd());
 
   // Finalize and set the manager/driver.
   plant.Finalize();
@@ -409,22 +424,23 @@ GTEST_TEST(SapDriverTest, ConstraintActiveStatus) {
     const SapContactProblem<double>& problem = *problem_cache.sap_problem;
 
     // Verify number of constraints when all are active. There is no contact
-    // so we expect one coupler constraint, one distance constraint and one
-    // ball constraint.
-    EXPECT_EQ(problem.num_constraints(), 3);
+    // so we expect one coupler constraint, one distance constraint one
+    // ball constraint and one weld constraint.
+    EXPECT_EQ(problem.num_constraints(), 4);
     EXPECT_EQ(problem.num_constraint_equations(),
               1 /* coupler constraint */ + 1 /* distance constraint */ +
-                  3 /* ball constraint */);
+                  3 /* ball constraint */ + 6 /* weld constraint*/);
     // TODO(joemasterjohn): When these constraints become first class citizens,
     // verify the constraints via type casts rather than just looking at the
     // number of constraint equations as a proxy.
     EXPECT_EQ(problem.get_constraint(0).num_constraint_equations(), 1);
     EXPECT_EQ(problem.get_constraint(1).num_constraint_equations(), 1);
     EXPECT_EQ(problem.get_constraint(2).num_constraint_equations(), 3);
+    EXPECT_EQ(problem.get_constraint(3).num_constraint_equations(), 6);
   }
 
-  // Set the distance and ball constraint to inactive and verify that only the
-  // coupler constraint shows up in the problem.
+  // Set the distance and ball constraints to inactive and verify that only the
+  // coupler and weld constraints show up in the problem.
   {
     plant.SetConstraintActiveStatus(context.get(), distance_constraint_id,
                                     false);
@@ -434,17 +450,21 @@ GTEST_TEST(SapDriverTest, ConstraintActiveStatus) {
         SapDriverTest::EvalContactProblemCache(sap_driver, *context);
     const SapContactProblem<double>& problem = *problem_cache.sap_problem;
 
-    // Verify number of constraints when only the coupler constraint is active.
-    EXPECT_EQ(problem.num_constraints(), 1);
-    EXPECT_EQ(problem.num_constraint_equations(), 1 /* coupler constraint */);
+    // Verify number of constraints when only the coupler and weld constraints
+    // are active.
+    EXPECT_EQ(problem.num_constraints(), 2);
+    EXPECT_EQ(problem.num_constraint_equations(),
+              1 /* coupler constraint */ + 6 /* weld constraint */);
     EXPECT_EQ(problem.get_constraint(0).num_constraint_equations(), 1);
+    EXPECT_EQ(problem.get_constraint(1).num_constraint_equations(), 6);
   }
 
-  // Now disable the coupler constraint and verify that the problem has 0
-  // constraints.
+  // Now disable the coupler and weld constraints and verify that the problem
+  // has 0 constraints.
   {
     plant.SetConstraintActiveStatus(context.get(), coupler_constraint_id,
                                     false);
+    plant.SetConstraintActiveStatus(context.get(), weld_constraint_id, false);
 
     const ContactProblemCache<double>& problem_cache =
         SapDriverTest::EvalContactProblemCache(sap_driver, *context);
@@ -461,24 +481,26 @@ GTEST_TEST(SapDriverTest, ConstraintActiveStatus) {
                                     true);
     plant.SetConstraintActiveStatus(context.get(), ball_constraint_id, true);
     plant.SetConstraintActiveStatus(context.get(), coupler_constraint_id, true);
+    plant.SetConstraintActiveStatus(context.get(), weld_constraint_id, true);
 
     const ContactProblemCache<double>& problem_cache =
         SapDriverTest::EvalContactProblemCache(sap_driver, *context);
     const SapContactProblem<double>& problem = *problem_cache.sap_problem;
 
     // Verify number of constraints when all are active. There is no contact
-    // so we expect one coupler constraint, one distance constraint and one
-    // ball constraint.
-    EXPECT_EQ(problem.num_constraints(), 3);
+    // so we expect one coupler constraint, one distance constraint, one
+    // ball constraint and one weld constraint.
+    EXPECT_EQ(problem.num_constraints(), 4);
     EXPECT_EQ(problem.num_constraint_equations(),
               1 /* coupler constraint */ + 1 /* distance constraint */ +
-                  3 /* ball constraint */);
+                  3 /* ball constraint */ + 6 /* weld constraint */);
     // TODO(joemasterjohn): When these constraints become first class citizens,
     // verify the constraints via type casts rather than just looking at the
     // number of constraint equations as a proxy.
     EXPECT_EQ(problem.get_constraint(0).num_constraint_equations(), 1);
     EXPECT_EQ(problem.get_constraint(1).num_constraint_equations(), 1);
     EXPECT_EQ(problem.get_constraint(2).num_constraint_equations(), 3);
+    EXPECT_EQ(problem.get_constraint(3).num_constraint_equations(), 6);
   }
 }
 

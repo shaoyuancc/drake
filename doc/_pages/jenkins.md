@@ -56,6 +56,13 @@ For example:
 * ``@drake-jenkins-bot mac-x86-monterey-clang-bazel-experimental-release please.``
 * ``@drake-jenkins-bot linux-focal-clang-bazel-experimental-valgrind-memcheck please``
 
+A list of Jenkins bot commands that cover the full set of continuous, nightly
+and weekly production jobs are available for
+[provisioned](https://github.com/RobotLocomotion/drake/blob/jenkins-jobs-experimental/request-jobs-provisioned.txt)
+and
+[unprovisioned](https://github.com/RobotLocomotion/drake/blob/jenkins-jobs-experimental/request-jobs-unprovisioned.txt)
+builds.
+
 ## Scheduling Builds via the Jenkins User Interface
 
 Alternatively, to schedule a build of an open pull request or arbitrary commit
@@ -121,7 +128,7 @@ more of these commands:
 
 * ``@drake-jenkins-bot linux-focal-unprovisioned-gcc-bazel-experimental-packaging please``
 * ``@drake-jenkins-bot linux-jammy-unprovisioned-gcc-bazel-experimental-packaging please``
-* ``@drake-jenkins-bot mac-arm-monterey-unprovisioned-clang-bazel-experimental-packaging please``
+* ``@drake-jenkins-bot mac-arm-ventura-unprovisioned-clang-bazel-experimental-packaging please``
 * ``@drake-jenkins-bot mac-x86-monterey-unprovisioned-clang-bazel-experimental-packaging please``
 
 or follow the [instructions above](#scheduling-builds-via-the-jenkins-user-interface)
@@ -146,7 +153,7 @@ To schedule an "experimental" build of a [wheel package](/pip.html),
 comment on an open pull request using one or more of these commands:
 
 * ``@drake-jenkins-bot linux-focal-unprovisioned-gcc-wheel-experimental-release``
-* ``@drake-jenkins-bot mac-arm-monterey-unprovisioned-clang-wheel-experimental-release``
+* ``@drake-jenkins-bot mac-arm-ventura-unprovisioned-clang-wheel-experimental-release``
 * ``@drake-jenkins-bot mac-x86-monterey-unprovisioned-clang-wheel-experimental-release``
 
 or follow the [instructions above](#scheduling-builds-via-the-jenkins-user-interface)

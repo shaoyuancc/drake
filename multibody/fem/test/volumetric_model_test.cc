@@ -159,17 +159,17 @@ TEST_F(VolumetricModelTest, TangentMatrixIsResidualDerivative) {
   unique_ptr<FemState<AutoDiffXd>> autodiff_state =
       MakeDeformedFemState(model_);
   VectorX<AutoDiffXd> residual(autodiff_state->num_dofs());
-  model_.CalcResidual(*autodiff_state, &residual);
+  const systems::LeafContext<AutoDiffXd> dummy_context;
+  const FemPlantData<AutoDiffXd> dummy_data{dummy_context, {}};
+  model_.CalcResidual(*autodiff_state, dummy_data, &residual);
 
   VolumetricModel<DoubleElement> double_model;
   AddBoxToModel(&double_model);
   unique_ptr<FemState<double>> double_state =
       MakeDeformedFemState(double_model);
-  auto tangent_matrix =
-      double_model.MakePetscSymmetricBlockSparseTangentMatrix();
+  auto tangent_matrix = double_model.MakeTangentMatrix();
   double_model.CalcTangentMatrix(*double_state, double_integrator_.GetWeights(),
                                  tangent_matrix.get());
-  tangent_matrix->AssembleIfNecessary();
   const MatrixXd tangent_matrix_dense = tangent_matrix->MakeDenseMatrix();
   EXPECT_TRUE(CompareMatrices(math::ExtractGradient(residual),
                               tangent_matrix_dense,

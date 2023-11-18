@@ -19,9 +19,9 @@ Argument:
     name: A unique name for this rule.
 """
 
-load("@drake//tools/workspace:os.bzl", "determine_os")
+load("//tools/workspace:os.bzl", "determine_os")
 load(
-    "@drake//tools/workspace:metadata.bzl",
+    "//tools/workspace:metadata.bzl",
     "generate_repository_metadata",
 )
 
@@ -33,17 +33,17 @@ def _impl(repository_ctx):
     # To update this, each artifact needs to be downloaded and its checksum
     # computed manually.  See tools/workspace/mirrors.bzl for the canonical
     # URL.
-    version = "v6.1.2"
+    version = "v6.4.0"
     darwin_urls = [
         x.format(version = version, filename = "buildifier-darwin-amd64")
         for x in repository_ctx.attr.mirrors.get("buildifier")
     ]
-    darwin_sha256 = "e2f4a67691c5f55634fbfb3850eb97dd91be0edd059d947b6c83d120682e0216"  # noqa
+    darwin_sha256 = "eeb47b2de27f60efe549348b183fac24eae80f1479e8b06cac0799c486df5bed"  # noqa
     linux_urls = [
         x.format(version = version, filename = "buildifier-linux-amd64")
         for x in repository_ctx.attr.mirrors.get("buildifier")
     ]
-    linux_sha256 = "51bc947dabb7b14ec6fb1224464fbcf7a7cb138f1a10a3b328f00835f72852ce"  # noqa
+    linux_sha256 = "be63db12899f48600bad94051123b1fd7b5251e7661b9168582ce52396132e92"  # noqa
 
     # Choose which binary to use.
     os_result = determine_os(repository_ctx)

@@ -1,5 +1,5 @@
 load(
-    "@drake//tools/skylark:drake_cc.bzl",
+    "//tools/skylark:drake_cc.bzl",
     "drake_cc_googletest",
     "drake_cc_library",
     "drake_cc_package_library",
@@ -184,6 +184,7 @@ drake_cc_googletest(
         ":kinematic_trajectory_optimization",
         "//common/test_utilities:eigen_matrix_compare",
         "//solvers:constraint",
+        "//solvers:ipopt_solver",
         "//solvers:osqp_solver",
         "//solvers:solve",
     ],

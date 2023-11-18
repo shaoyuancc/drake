@@ -106,8 +106,10 @@ class CollisionCheckerTester : public UnimplementedCollisionChecker {
  public:
   explicit CollisionCheckerTester(CollisionCheckerParams params,
                                   bool supports_parallel_checking = false)
-      : UnimplementedCollisionChecker(std::move(params),
-                                      supports_parallel_checking) {}
+      : UnimplementedCollisionChecker(
+            MaybeNerfParamParallelism(std::move(params),
+                                      supports_parallel_checking),
+            supports_parallel_checking) {}
 
   //@{
   // Interesting virtual overrides.
@@ -229,6 +231,14 @@ class CollisionCheckerTester : public UnimplementedCollisionChecker {
   //@}
 
  private:
+  static CollisionCheckerParams MaybeNerfParamParallelism(
+      CollisionCheckerParams params, bool supports_parallel_checking) {
+    if (!supports_parallel_checking) {
+      params.implicit_context_parallelism = Parallelism::None();
+    }
+    return params;
+  }
+
   bool collision_free_{false};
   optional<GeometryId> added_shape_id_;
   // Updated with every call to DoUpdateContextPositions().
@@ -437,17 +447,26 @@ GTEST_TEST(CollisionCheckerTest, CollisionCheckerEmpty) {
   // are required to allocate contexts during construction. This is proof that
   // such an erroneous implementation can't appear functional.
   EXPECT_THROW(dut.plant_context(), std::exception);
+  EXPECT_THROW(dut.plant_context(0), std::exception);
   EXPECT_THROW(dut.model_context(), std::exception);
+  EXPECT_THROW(dut.model_context(0), std::exception);
   EXPECT_THROW(dut.Clone(), std::exception);
   EXPECT_THROW(dut.MakeStandaloneModelContext(), std::exception);
   EXPECT_THROW(dut.PerformOperationAgainstAllModelContexts(op), std::exception);
 
   dut.AllocateContexts();
   EXPECT_NO_THROW(dut.plant_context());
+  EXPECT_NO_THROW(dut.plant_context(0));
   EXPECT_NO_THROW(dut.model_context());
+  EXPECT_NO_THROW(dut.model_context(0));
   EXPECT_NO_THROW(dut.Clone());
   EXPECT_NO_THROW(dut.MakeStandaloneModelContext());
   EXPECT_NO_THROW(dut.PerformOperationAgainstAllModelContexts(op));
+
+  // Asking for an out-of-range context number throws.
+  EXPECT_FALSE(dut.SupportsParallelChecking());
+  EXPECT_THROW(dut.plant_context(1), std::exception);
+  EXPECT_THROW(dut.model_context(1), std::exception);
 }
 
 // Test the robot model introspection APIs.
@@ -1369,21 +1388,6 @@ TEST_F(TrivialCollisionCheckerTest, IsCollisionFilteredBetween) {
                                                dut_->get_body(BodyIndex(3))));
 }
 
-TEST_F(TrivialCollisionCheckerTest, GetNumberOfThreads) {
-  EXPECT_EQ(dut_->GetNumberOfThreads(false), 1);
-
-  const int num_omp_threads =
-      common_robotics_utilities::openmp_helpers::GetNumOmpThreads();
-  const int num_contexts = dut_->num_allocated_contexts();
-  const int expected_num_threads = std::min(num_omp_threads, num_contexts);
-
-  if (common_robotics_utilities::openmp_helpers::IsOmpEnabledInBuild()) {
-    EXPECT_GT(expected_num_threads, 1);
-  }
-
-  EXPECT_EQ(dut_->GetNumberOfThreads(true), expected_num_threads);
-}
-
 // Creates a checker on a plant with an N-link chain (optionally) welded to the
 // world. Part of the edge-checking API test infrastructure (see below).
 template <typename CheckerType>
@@ -1527,8 +1531,6 @@ GTEST_TEST(EdgeCheckTest, DefaultInterpolation) {
       dist, 0.1, nullptr /* default interpolator */, false /* welded */);
 
   const auto& plant = dut.plant();
-  auto context = plant.CreateDefaultContext();
-
   // Body "b0" should be floating (7 dof) and "b1" should be linked to "b0" by
   // a single revolute joint.
   ASSERT_EQ(dut.plant().num_positions(), 8);
@@ -1552,11 +1554,13 @@ GTEST_TEST(EdgeCheckTest, DefaultInterpolation) {
 
   // Given a pose of the free body and the angle theta between bodies b0 and b1,
   // returns the plant's q.
-  auto get_q = [&plant, &context](const RigidTransformd& X_B0, double theta) {
+  auto get_q = [&plant](const RigidTransformd& X_B0, double theta) {
     const Body<double>& body0 = plant.GetBodyByName("b0");
-    plant.SetFreeBodyPose(context.get(), body0, X_B0);
-    plant.GetMutablePositions(context.get())[7] = theta;
-    return plant.GetPositions(*context);
+    auto plant_context = plant.CreateDefaultContext();
+    plant.SetFreeBodyPose(plant_context.get(), body0, X_B0);
+    VectorXd positions = plant.GetPositions(*plant_context);
+    positions[7] = theta;
+    return positions;
   };
 
   const VectorXd q_init = get_q(X_WB0_init, j12_init);

@@ -7,7 +7,6 @@ import copy
 import numpy as np
 
 from pydrake.common import RandomGenerator, temp_directory
-from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.common.test_utilities.pickle_compare import assert_pickle
 from pydrake.geometry import (
     Box, Capsule, Cylinder, Convex, Ellipsoid, FramePoseVector, GeometryFrame,
@@ -60,6 +59,45 @@ class TestGeometryOptimization(unittest.TestCase):
         # TODO(SeanCurtis-TRI): This doesn't test the constructor that
         # builds from shape.
 
+    def test_affine_ball(self):
+        dut = mut.AffineBall()
+
+        self.assertEqual(dut.B().shape[0], 0)
+        self.assertEqual(dut.B().shape[1], 0)
+        self.assertEqual(dut.center().shape[0], 0)
+        self.assertEqual(dut.ambient_dimension(), 0)
+        self.assertFalse(dut.IsEmpty())
+        self.assertTrue(dut.IsBounded())
+        self.assertTrue(dut.PointInSet(dut.MaybeGetFeasiblePoint()))
+        self.assertTrue(dut.IntersectsWith(dut))
+
+        B = np.eye(2)
+        center = np.zeros(2)
+        E = mut.AffineBall(B=B, center=center)
+
+        self.assertEqual(E.B().shape[0], 2)
+        self.assertEqual(E.B().shape[1], 2)
+        self.assertEqual(E.center().shape[0], 2)
+        self.assertEqual(E.ambient_dimension(), 2)
+        self.assertEqual(E.CalcVolume(), np.pi)
+        self.assertFalse(E.IsEmpty())
+        self.assertTrue(E.IsBounded())
+        self.assertTrue(E.PointInSet(E.MaybeGetFeasiblePoint()))
+        self.assertTrue(E.IntersectsWith(E))
+
+        mut.AffineBall.MakeAxisAligned(
+            radius=np.ones(3), center=np.zeros(3))
+        mut.AffineBall.MakeHypersphere(radius=2, center=np.zeros(3))
+        mut.AffineBall.MakeUnitBall(dim=2)
+
+        mut.AffineBall(ellipsoid=mut.Hyperellipsoid.MakeUnitBall(dim=1))
+
+        points = np.array([[1, 0], [-1, 0], [0, 2], [0, -2]]).T
+        e_lowner_john = mut.AffineBall.MinimumVolumeCircumscribedEllipsoid(
+            points=points, rank_tol=1e-2)
+        e_lowner_john = mut.AffineBall.MinimumVolumeCircumscribedEllipsoid(
+            points=points)
+
     def test_affine_subspace(self):
         dut = mut.AffineSubspace()
 
@@ -89,6 +127,8 @@ class TestGeometryOptimization(unittest.TestCase):
         self.assertTrue(dut.PointInSet(dut.MaybeGetFeasiblePoint()))
         self.assertTrue(dut.IntersectsWith(dut))
         self.assertEqual(dut.AffineDimension(), 2)
+        complement_basis = dut.OrthogonalComplementBasis()
+        self.assertEqual(complement_basis.shape, (3, 1))
 
         test_point = np.array([43, 43, 0])
         self.assertFalse(dut.PointInSet(test_point))
@@ -293,6 +333,7 @@ class TestGeometryOptimization(unittest.TestCase):
             points=points, rank_tol=1e-2)
         e_lowner_john = mut.Hyperellipsoid.MinimumVolumeCircumscribedEllipsoid(
             points=points)
+        mut.Hyperellipsoid(ellipsoid=mut.AffineBall.MakeUnitBall(dim=1))
 
     def test_minkowski_sum(self):
         mut.MinkowskiSum()
@@ -516,6 +557,8 @@ class TestGeometryOptimization(unittest.TestCase):
         options.relative_termination_threshold = 0.01
         options.random_seed = 1314
         options.starting_ellipse = mut.Hyperellipsoid.MakeUnitBall(3)
+        options.bounding_region = mut.HPolyhedron.MakeBox(
+            lb=[-6, -6, -6], ub=[6, 6, 6])
         self.assertNotIn("object at 0x", repr(options))
         region = mut.Iris(
             obstacles=obstacles, sample=[2, 3.4, 5],
@@ -627,16 +670,12 @@ class TestGeometryOptimization(unittest.TestCase):
         source = spp.AddVertex(set=mut.Point([0.1]), name="source")
         target = spp.AddVertex(set=mut.Point([0.2]), name="target")
         edge0 = spp.AddEdge(u=source, v=target, name="edge0")
-        with catch_drake_warnings(expected_count=1) as w:
-            edge1 = spp.AddEdge(u_id=source.id(),
-                                v_id=target.id(),
-                                name="edge1")
+        edge1 = spp.AddEdge(u=source, v=target, name="edge1")
         self.assertEqual(len(spp.Vertices()), 2)
         self.assertEqual(len(spp.Edges()), 2)
-        with catch_drake_warnings(expected_count=1) as w:
-            result = spp.SolveShortestPath(
-                source_id=source.id(), target_id=target.id(), options=options)
-            self.assertIsInstance(result, MathematicalProgramResult)
+        result = spp.SolveShortestPath(
+            source=source, target=target, options=options)
+        self.assertIsInstance(result, MathematicalProgramResult)
         self.assertIsInstance(spp.SolveShortestPath(
             source=source, target=target, options=options),
             MathematicalProgramResult)
@@ -715,17 +754,15 @@ class TestGeometryOptimization(unittest.TestCase):
         self.assertEqual(len(spp.Edges()), 2)
         spp.RemoveEdge(edge0)
         self.assertEqual(len(spp.Edges()), 1)
-        with catch_drake_warnings(expected_count=1) as w:
-            spp.RemoveEdge(edge1.id())
-            self.assertEqual(len(spp.Edges()), 0)
+        spp.RemoveEdge(edge1)
+        self.assertEqual(len(spp.Edges()), 0)
 
         # Remove Vertices
         self.assertEqual(len(spp.Vertices()), 2)
         spp.RemoveVertex(source)
         self.assertEqual(len(spp.Vertices()), 1)
-        with catch_drake_warnings(expected_count=1) as w:
-            spp.RemoveVertex(target.id())
-            self.assertEqual(len(spp.Vertices()), 0)
+        spp.RemoveVertex(target)
+        self.assertEqual(len(spp.Vertices()), 0)
 
 
 class TestCspaceFreePolytope(unittest.TestCase):
@@ -949,6 +986,8 @@ class TestCspaceFreePolytope(unittest.TestCase):
         self.assertFalse(options.with_cross_y)
         options.with_cross_y = True
         self.assertTrue(options.with_cross_y)
+        self.assertIn("with_cross_y", repr(options))
+        self.assertNotIn("object at 0x", repr(options))
 
     def test_CspaceFreePolytope_getters_and_auxillary_structs(self):
         dut = self.cspace_free_polytope

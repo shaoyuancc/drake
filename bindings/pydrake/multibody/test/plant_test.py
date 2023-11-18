@@ -39,6 +39,7 @@ from pydrake.multibody.tree import (
     LinearSpringDamper_,
     ModelInstanceIndex,
     MultibodyForces_,
+    PdControllerGains,
     PlanarJoint_,
     PrismaticJoint_,
     PrismaticSpring_,
@@ -432,6 +433,10 @@ class TestPlant(unittest.TestCase):
         self.assertIsInstance(
             plant.get_actuation_input_port(), InputPort)
         self.assertIsInstance(
+            plant.get_net_actuation_output_port(), OutputPort)
+        self.assertIsInstance(
+            plant.get_net_actuation_output_port(model_instance), OutputPort)
+        self.assertIsInstance(
             plant.get_state_output_port(), OutputPort)
         self.assertIsInstance(
             plant.get_generalized_acceleration_output_port(), OutputPort)
@@ -514,8 +519,6 @@ class TestPlant(unittest.TestCase):
         self._test_multibody_tree_element_mixin(T, body)
         self.assertIsInstance(body.name(), str)
         self.assertIsInstance(body.scoped_name(), ScopedName)
-        self.assertIsInstance(body.get_num_flexible_positions(), int)
-        self.assertIsInstance(body.get_num_flexible_velocities(), int)
         self.assertIsInstance(body.is_floating(), bool)
         self.assertIsInstance(body.has_quaternion_dofs(), bool)
         self.assertIsInstance(body.default_mass(), float)
@@ -1285,7 +1288,8 @@ class TestPlant(unittest.TestCase):
         if T == float:
             # Can reference matrices. Use `x_ref`.
             # Write into a mutable reference to the state vector.
-            x_ref = plant.GetMutablePositionsAndVelocities(context)
+            with catch_drake_warnings(expected_count=1) as w:
+                x_ref = plant.GetMutablePositionsAndVelocities(context)
             x_ref[:] = x0
 
             def set_zero():
@@ -1330,6 +1334,15 @@ class TestPlant(unittest.TestCase):
         plant.GetDefaultPositions()
         plant.SetDefaultPositions(model_instance=instance, q_instance=q0)
         plant.GetDefaultPositions(model_instance=instance)
+
+        if T == float:
+            # Test GetMutablePositions/Velocities
+            with catch_drake_warnings(expected_count=1) as w:
+                q_ref = plant.GetMutablePositions(context)
+            q_ref[:] = q0
+            with catch_drake_warnings(expected_count=1) as w:
+                v_ref = plant.GetMutableVelocities(context)
+            v_ref[:] = v0
 
         # Test existence of context resetting methods.
         plant.SetDefaultState(context, state=context.get_mutable_state())
@@ -1760,7 +1773,8 @@ class TestPlant(unittest.TestCase):
         x_desired[nq+7:nq+nv] = v_gripper_desired
 
         if T == float:
-            x = plant.GetMutablePositionsAndVelocities(context=context)
+            with catch_drake_warnings(expected_count=1) as w:
+                x = plant.GetMutablePositionsAndVelocities(context=context)
             x[:] = x_desired
         else:
             plant.SetPositionsAndVelocities(context, x_desired)
@@ -1771,7 +1785,8 @@ class TestPlant(unittest.TestCase):
         # Get state from context.
         x = plant.GetPositionsAndVelocities(context=context)
         if T == float:
-            x_tmp = plant.GetMutablePositionsAndVelocities(context=context)
+            with catch_drake_warnings(expected_count=1) as w:
+                x_tmp = plant.GetMutablePositionsAndVelocities(context=context)
             self.assertTrue(np.allclose(x_desired, x_tmp))
 
         # Get positions and velocities of specific model instances
@@ -1850,7 +1865,9 @@ class TestPlant(unittest.TestCase):
             plant.GetFreeBodyPose(context, link0).translation(),
             [0.4, 0.5, 0.6])
         self.assertNotEqual(link0.floating_positions_start(), -1)
-        self.assertNotEqual(link0.floating_velocities_start(), -1)
+        self.assertNotEqual(link0.floating_velocities_start_in_v(), -1)
+        with catch_drake_warnings(expected_count=1):
+            self.assertNotEqual(link0.floating_velocities_start(), -1)
         self.assertFalse(plant.IsVelocityEqualToQDot())
         v_expected = np.linspace(start=-1.0, stop=-nv, num=nv)
         qdot = plant.MapVelocityToQDot(context, v_expected)
@@ -2004,8 +2021,11 @@ class TestPlant(unittest.TestCase):
                 u = np.array([0.1])
                 numpy_compare.assert_float_equal(
                     actuator.get_actuation_vector(u=u), [0.1])
+                with catch_drake_warnings(expected_count=1):
+                    actuator.set_actuation_vector(
+                        u_instance=np.array([0.2]), u=u)
                 actuator.set_actuation_vector(
-                    u_instance=np.array([0.2]), u=u)
+                    u_actuator=np.array([0.2]), u=u)
                 numpy_compare.assert_float_equal(u, [0.2])
                 self.assertIsInstance(actuator.rotor_inertia(context), float)
                 self.assertIsInstance(actuator.gear_ratio(context), float)
@@ -2410,10 +2430,14 @@ class TestPlant(unittest.TestCase):
         # Add ball and distance constraints.
         p_AP = [0.0, 0.0, 0.0]
         p_BQ = [0.0, 0.0, 0.0]
+        X_AP = RigidTransform_[float](p_AP)
+        X_BQ = RigidTransform_[float](p_BQ)
         distance_id = plant.AddDistanceConstraint(
             body_A=body_A, p_AP=p_AP, body_B=body_B, p_BQ=p_BQ, distance=0.01)
         ball_id = plant.AddBallConstraint(
             body_A=body_A, p_AP=p_AP, body_B=body_B, p_BQ=p_BQ)
+        weld_id = plant.AddWeldConstraint(
+            body_A=body_A, X_AP=X_AP, body_B=body_B, X_BQ=X_BQ)
 
         Parser(plant).AddModelsFromUrl(
             "package://drake/manipulation/models/"
@@ -2439,6 +2463,8 @@ class TestPlant(unittest.TestCase):
             plant.GetConstraintActiveStatus(context=context, id=distance_id))
         self.assertTrue(
             plant.GetConstraintActiveStatus(context=context, id=ball_id))
+        self.assertTrue(
+            plant.GetConstraintActiveStatus(context=context, id=weld_id))
 
         # Set all constraints to inactive.
         plant.SetConstraintActiveStatus(
@@ -2447,6 +2473,8 @@ class TestPlant(unittest.TestCase):
             context=context, id=distance_id, status=False)
         plant.SetConstraintActiveStatus(
             context=context, id=ball_id, status=False)
+        plant.SetConstraintActiveStatus(
+            context=context, id=weld_id, status=False)
 
         # Verify all constraints are inactive in the context.
         self.assertFalse(
@@ -2455,6 +2483,8 @@ class TestPlant(unittest.TestCase):
             plant.GetConstraintActiveStatus(context=context, id=distance_id))
         self.assertFalse(
             plant.GetConstraintActiveStatus(context=context, id=ball_id))
+        self.assertFalse(
+            plant.GetConstraintActiveStatus(context=context, id=weld_id))
 
         # Set all constraints to back to active.
         plant.SetConstraintActiveStatus(
@@ -2463,6 +2493,8 @@ class TestPlant(unittest.TestCase):
             context=context, id=distance_id, status=True)
         plant.SetConstraintActiveStatus(
             context=context, id=ball_id, status=True)
+        plant.SetConstraintActiveStatus(
+            context=context, id=weld_id, status=True)
 
         # Verify all constraints are active in the context.
         self.assertTrue(
@@ -2471,6 +2503,29 @@ class TestPlant(unittest.TestCase):
             plant.GetConstraintActiveStatus(context=context, id=distance_id))
         self.assertTrue(
             plant.GetConstraintActiveStatus(context=context, id=ball_id))
+        self.assertTrue(
+            plant.GetConstraintActiveStatus(context=context, id=weld_id))
+
+    @numpy_compare.check_all_types
+    def test_weld_constraint_api(self, T):
+        plant = MultibodyPlant_[T](0.01)
+        plant.set_discrete_contact_solver(DiscreteContactSolver.kSap)
+
+        # Add weld constraint. Since we won't be performing dynamics
+        # computations, using garbage inertia is ok for this test.
+        M = SpatialInertia_[float]()
+        body_A = plant.AddRigidBody(name="A", M_BBo_B=M)
+        body_B = plant.AddRigidBody(name="B", M_BBo_B=M)
+        X_AP = RigidTransform_[float]()
+        X_BQ = RigidTransform_[float]()
+        plant.AddWeldConstraint(
+            body_A=body_A, X_AP=X_AP, body_B=body_B, X_BQ=X_BQ)
+
+        # We are done creating the model.
+        plant.Finalize()
+
+        # Verify the constraint was added.
+        self.assertEqual(plant.num_constraints(), 1)
 
     @numpy_compare.check_all_types
     def test_multibody_dynamics(self, T):
@@ -2481,11 +2536,34 @@ class TestPlant(unittest.TestCase):
         file_name = FindResourceOrThrow(
             "drake/multibody/benchmarks/acrobot/acrobot.sdf")
         # N.B. `Parser` only supports `MultibodyPlant_[float]`.
-        plant_f = MultibodyPlant_[float](0.0)
-        Parser(plant_f).AddModels(file_name)
+        # N.B. PD controllers below are only supported by discrete models.
+        plant_f = MultibodyPlant_[float](0.01)
+        model_instance, = Parser(plant_f).AddModels(file_name)
         # Getting ready for when we set foot on Mars :-).
         gravity_vector = np.array([0.0, 0.0, -3.71])
         plant_f.mutable_gravity_field().set_gravity_vector(gravity_vector)
+
+        # MultibodyPlant APIs to enable/disable gravity.
+        self.assertTrue(plant_f.is_gravity_enabled(model_instance))
+        plant_f.set_gravity_enabled(model_instance, is_enabled=False)
+        self.assertFalse(plant_f.is_gravity_enabled(model_instance))
+        plant_f.set_gravity_enabled(model_instance, is_enabled=True)
+
+        # UniformGravityField APIs to enable/disable gravity.
+        gravity = plant_f.gravity_field()
+        self.assertTrue(gravity.is_enabled(model_instance))
+        gravity.set_enabled(model_instance, is_enabled=False)
+        self.assertFalse(gravity.is_enabled(model_instance))
+        gravity.set_enabled(model_instance, is_enabled=True)
+
+        # Smoke test PD controllers APIs.
+        elbow = plant_f.GetJointActuatorByName("ElbowJoint")
+        mutable_elbow = plant_f.get_mutable_joint_actuator(elbow.index())
+        gains = PdControllerGains(p=2000.0, d=100.0)
+        mutable_elbow.set_controller_gains(gains)
+        self.assertTrue(mutable_elbow.has_controller())
+        mutable_elbow.get_controller_gains()
+
         plant_f.Finalize()
         plant = to_type(plant_f, T)
         context = plant.CreateDefaultContext()

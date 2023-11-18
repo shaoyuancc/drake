@@ -1,5 +1,5 @@
 load(
-    "@drake//tools/skylark:drake_cc.bzl",
+    "//tools/skylark:drake_cc.bzl",
     "drake_cc_googletest",
     "drake_cc_library",
     "drake_cc_package_library",
@@ -239,6 +239,7 @@ drake_cc_library(
         "//common:default_scalars",
         "//common:essential",
         "//math:geometric_transform",
+        "//math:vector3_util",
     ],
 )
 
@@ -264,8 +265,10 @@ drake_cc_library(
     deps = [
         ":spatial_inertia",
         "//geometry:shape_specification",
+        "//geometry/proximity:make_mesh_from_vtk",
         "//geometry/proximity:obj_to_surface_mesh",
         "//geometry/proximity:triangle_surface_mesh",
+        "//geometry/proximity:volume_to_surface_mesh",
     ],
 )
 
@@ -301,6 +304,7 @@ drake_cc_googletest(
         ":free_rotating_body_plant",
         "//common/test_utilities:eigen_matrix_compare",
         "//multibody/benchmarks/free_body",
+        "//systems/analysis:runge_kutta3_integrator",
         "//systems/analysis:simulator",
     ],
 )
@@ -673,7 +677,10 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "geometry_spatial_inertia_test",
-    data = ["//multibody/parsing:test_models"],
+    data = [
+        "//geometry:test_vtk_files",
+        "//multibody/parsing:test_models",
+    ],
     deps = [
         ":geometry_spatial_inertia",
         "//common:find_resource",

@@ -1,4 +1,3 @@
-#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/geometry/optimization_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
@@ -188,18 +187,6 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
                 const solvers::MathematicalProgramResult&>(
                 &Class::ReconstructStateTrajectory),
             py::arg("result"), cls_doc.ReconstructStateTrajectory.doc);
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    cls.def("timestep",
-           WrapDeprecated(cls_doc.timestep.doc_deprecated, &Class::timestep),
-           py::arg("index"), cls_doc.timestep.doc_deprecated)
-        .def("fixed_timestep",
-            WrapDeprecated(
-                cls_doc.fixed_timestep.doc_deprecated, &Class::fixed_timestep),
-            cls_doc.fixed_timestep.doc_deprecated);
-#pragma GCC diagnostic pop
-
     RegisterAddConstraintToAllKnotPoints<solvers::BoundingBoxConstraint>(&cls);
     RegisterAddConstraintToAllKnotPoints<solvers::LinearEqualityConstraint>(
         &cls);
@@ -218,21 +205,6 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
                  bool, solvers::MathematicalProgram*>(),
             py::arg("system"), py::arg("context"), py::arg("num_time_samples"),
             py::arg("minimum_time_step"), py::arg("maximum_time_step"),
-            py::arg("input_port_index") =
-                systems::InputPortSelection::kUseFirstInputIfItExists,
-            py::arg("assume_non_continuous_states_are_fixed") = false,
-            py::arg("prog") = nullptr, cls_doc.ctor.doc)
-        .def(
-            py_init_deprecated<Class, const systems::System<double>*,
-                const systems::Context<double>&, int, double, double,
-                std::variant<systems::InputPortSelection,
-                    systems::InputPortIndex>,
-                bool, solvers::MathematicalProgram*>(
-                "The arguments minimum_timestep and maximum_timestep have been "
-                "renamed to minimum_time_step and maximum_time_step. This "
-                "version will be removed on or after 2023-09-01."),
-            py::arg("system"), py::arg("context"), py::arg("num_time_samples"),
-            py::arg("minimum_timestep"), py::arg("maximum_timestep"),
             py::arg("input_port_index") =
                 systems::InputPortSelection::kUseFirstInputIfItExists,
             py::arg("assume_non_continuous_states_are_fixed") = false,
@@ -260,13 +232,6 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
       py::arg("constraint"), py::arg("time_step"), py::arg("state"),
       py::arg("next_state"), py::arg("input"), py::arg("next_input"),
       py::arg("prog"), doc.AddDirectCollocationConstraint.doc);
-  m.def("AddDirectCollocationConstraint",
-      WrapDeprecated("Argument timestep has been renamed to time_step. This "
-                     "version will be removed on or after 2023-09-01.",
-          AddDirectCollocationConstraint),
-      py::arg("constraint"), py::arg("timestep"), py::arg("state"),
-      py::arg("next_state"), py::arg("input"), py::arg("next_input"),
-      py::arg("prog"), doc.AddDirectCollocationConstraint.doc);
 
   {
     using Class = DirectTranscription;
@@ -290,17 +255,6 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
             py::arg("input_port_index") =
                 systems::InputPortSelection::kUseFirstInputIfItExists,
             cls_doc.ctor.doc_4args)
-        .def(py_init_deprecated<Class, const systems::System<double>*,
-                 const systems::Context<double>&, int, TimeStep,
-                 std::variant<systems::InputPortSelection,
-                     systems::InputPortIndex>>(
-                 "Argument fixed_timestep has been renamed to fixed_time_step. "
-                 "This version will be removed on or after 2023-09-01."),
-            py::arg("system"), py::arg("context"), py::arg("num_time_samples"),
-            py::arg("fixed_timestep"),
-            py::arg("input_port_index") =
-                systems::InputPortSelection::kUseFirstInputIfItExists,
-            cls_doc.ctor.doc_5args)
         .def(py::init<const systems::System<double>*,
                  const systems::Context<double>&, int, TimeStep,
                  std::variant<systems::InputPortSelection,
@@ -419,7 +373,11 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
             py::arg("weight") = 1.0,
             subgraph_doc.AddPathLengthCost.doc_1args_weight)
         .def("AddVelocityBounds", &Class::Subgraph::AddVelocityBounds,
-            py::arg("lb"), py::arg("ub"), subgraph_doc.AddVelocityBounds.doc);
+            py::arg("lb"), py::arg("ub"), subgraph_doc.AddVelocityBounds.doc)
+        .def("AddPathContinuityConstraints",
+            &Class::Subgraph::AddPathContinuityConstraints,
+            py::arg("continuity_order"),
+            subgraph_doc.AddPathContinuityConstraints.doc);
 
     // EdgesBetweenSubgraphs
     const auto& subgraph_edges_doc =
@@ -428,7 +386,11 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
         gcs_traj_opt, "EdgesBetweenSubgraphs", subgraph_edges_doc.doc)
         .def("AddVelocityBounds",
             &Class::EdgesBetweenSubgraphs::AddVelocityBounds, py::arg("lb"),
-            py::arg("ub"), subgraph_edges_doc.AddVelocityBounds.doc);
+            py::arg("ub"), subgraph_edges_doc.AddVelocityBounds.doc)
+        .def("AddPathContinuityConstraints",
+            &Class::EdgesBetweenSubgraphs::AddPathContinuityConstraints,
+            py::arg("continuity_order"),
+            subgraph_edges_doc.AddPathContinuityConstraints.doc);
 
     gcs_traj_opt  // BR
         .def(py::init<int>(), py::arg("num_positions"), cls_doc.ctor.doc)
@@ -478,13 +440,18 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
             py::arg("weight") = 1.0, cls_doc.AddPathLengthCost.doc_1args_weight)
         .def("AddVelocityBounds", &Class::AddVelocityBounds, py::arg("lb"),
             py::arg("ub"), cls_doc.AddVelocityBounds.doc)
+        .def("AddPathContinuityConstraints",
+            &Class::AddPathContinuityConstraints, py::arg("continuity_order"),
+            cls_doc.AddPathContinuityConstraints.doc)
         .def("SolvePath", &Class::SolvePath, py::arg("source"),
             py::arg("target"),
             py::arg("options") =
                 geometry::optimization::GraphOfConvexSetsOptions(),
             cls_doc.SolvePath.doc)
         .def("graph_of_convex_sets", &Class::graph_of_convex_sets,
-            py_rvp::reference_internal, cls_doc.graph_of_convex_sets.doc);
+            py_rvp::reference_internal, cls_doc.graph_of_convex_sets.doc)
+        .def_static("NormalizeSegmentTimes", &Class::NormalizeSegmentTimes,
+            py::arg("trajectory"), cls_doc.NormalizeSegmentTimes.doc);
   }
 }
 

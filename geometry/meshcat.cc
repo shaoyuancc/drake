@@ -1679,6 +1679,18 @@ class Meshcat::Impl {
     return f.get();
   }
 
+  void InjectWebsocketMessage(std::string_view message) {
+    DRAKE_DEMAND(IsThread(main_thread_id_));
+    std::promise<void> promise;
+    std::future<void> future = promise.get_future();
+    Defer([this, &promise, message_copy = std::string(message)]() {
+      DRAKE_DEMAND(IsThread(websocket_thread_id_));
+      this->HandleMessage(/* ws = */ nullptr, message_copy);
+      promise.set_value();
+    });
+    future.wait();
+  }
+
   void InjectWebsocketThreadFault(int fault_number) {
     DRAKE_DEMAND(IsThread(main_thread_id_));
     DRAKE_DEMAND(fault_number >= 0);
@@ -1795,7 +1807,12 @@ class Meshcat::Impl {
             .get("/*",
                  [&](uWS::HttpResponse<kSsl>* res, uWS::HttpRequest* req) {
                    DRAKE_DEMAND(IsThread(websocket_thread_id_));
-                   res->end(GetUrlContent(req->getUrl()));
+                   const std::string& content = GetUrlContent(req->getUrl());
+                   if (content.substr(0, 15) == "<!DOCTYPE html>") {
+                     res->writeHeader("Content-Type",
+                                      "text/html; charset=utf-8");
+                   }
+                   res->end(content);
                  })
             .ws<PerSocketData>("/*", std::move(behavior));
     app_ = &app;
@@ -1908,7 +1925,9 @@ class Meshcat::Impl {
     DRAKE_DEMAND(new_count == static_cast<int>(websockets_.size()));
   }
 
-  // This function is a callback from a WebSocketBehavior.
+  // This function is a callback from a WebSocketBehavior. However, unit tests
+  // may also call it (via InjectWebsocketMessage) in which case the `ws` will
+  // be null.
   void HandleMessage(WebSocket* ws, std::string_view message) {
     internal::UserInterfaceEvent data;
     try {
@@ -1942,6 +1961,7 @@ class Meshcat::Impl {
           std::stringstream message_stream;
           msgpack::pack(message_stream, set_slider);
           // ws->publish sends to all but not to ws.
+          DRAKE_DEMAND(ws != nullptr);
           ws->publish("all", message_stream.str(), uWS::OpCode::BINARY);
         }
       }
@@ -2509,6 +2529,10 @@ std::string Meshcat::GetPackedTransform(std::string_view path) const {
 std::string Meshcat::GetPackedProperty(std::string_view path,
                                        std::string property) const {
   return impl().GetPackedProperty(path, std::move(property));
+}
+
+void Meshcat::InjectWebsocketMessage(std::string_view message) {
+  impl().InjectWebsocketMessage(message);
 }
 
 void Meshcat::InjectWebsocketThreadFault(int fault_number) {

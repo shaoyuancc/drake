@@ -106,7 +106,7 @@ endif()
 
 # The version passed to find_package(Bazel) should match the
 # minimum_bazel_version value in the call to versions.check() in WORKSPACE.
-set(MINIMUM_BAZEL_VERSION 4.0)
+set(MINIMUM_BAZEL_VERSION 5.1)
 find_package(Bazel ${MINIMUM_BAZEL_VERSION} MODULE)
 if(NOT Bazel_FOUND)
   set(Bazel_EXECUTABLE "${PROJECT_SOURCE_DIR}/third_party/com_github_bazelbuild_bazelisk/bazelisk.py")
@@ -395,13 +395,6 @@ macro(override_repository NAME)
     "local_repository(name = '${NAME}', path = '${repo}')\n")
   list(APPEND BAZEL_WORKSPACE_EXCLUDES "${NAME}")
 endmacro()
-
-# For Python, always override Drake's default with the CMake selection instead.
-generate_external_repository_file(cmake_python/WORKSPACE)
-configure_file(
-  cmake/external/workspace/cmake_python/BUILD.bazel.in
-  external/workspace/cmake_python/BUILD.bazel @ONLY)
-override_repository(cmake_python)
 
 option(WITH_USER_EIGEN "Use user-provided Eigen3" OFF)
 

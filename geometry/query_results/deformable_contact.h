@@ -107,6 +107,9 @@ class ContactParticipation {
    contact. */
   int num_vertices_in_contact() const { return num_vertices_in_contact_; }
 
+  /* Returns the total number of vertices in the deformable geometry. */
+  int num_vertices() const { return participation_.size(); }
+
  private:
   /* participation_[i] indicates whether the i-th vertex participates in
    contact. */
@@ -153,7 +156,7 @@ class DeformableContactSurface {
       `signed_distances` if B is deformable. std::nullopt otherwise.
    @param[in] barycentric_coordinates_B
       Barycentric coordinates of centroids of contact polygons with respect to
-      their containing tetrahedra in mesh A if B is deformable. std::nullopt
+      their containing tetrahedra in mesh B if B is deformable. std::nullopt
       otherwise.
    @pre contact_mesh_W.num_faces() == signed_distances.size().
    @pre contact_mesh_W.num_faces() == contact_vertex_indexes_A.size().
@@ -267,10 +270,11 @@ class DeformableContact {
 
   /* Returns the contact participating information of the deformable geometry
    with the given id.
-   @pre A geometry with `deformable_id` has been registered via
-   RegisterDeformableGeometry(). */
+   @throws std::exception if a geometry with `deformable_id` hasn't been
+   registered via RegisterDeformableGeometry(). */
   const ContactParticipation& contact_participation(
       GeometryId deformable_id) const {
+    DRAKE_THROW_UNLESS(IsRegistered(deformable_id));
     return contact_participations_.at(deformable_id);
   }
 
@@ -311,12 +315,89 @@ class DeformableContact {
       std::vector<Vector4<int>> contact_vertex_indexes,
       std::vector<Vector4<T>> barycentric_coordinates);
 
+  /* Adds a contact surface between two deformable geometries.
+  @param[in] id0
+     The GeometryId of the first deformable geometry.
+  @param[in] id1
+     The GeometryId of the second deformable geometry.
+  @param[in] participating_vertices0
+     Each contact polygon in `contact_mesh_W` is completely contained within
+     one tetrahedron of the first deformable mesh. `participating_vertices0`
+     contains the indices of vertices incident to all such tetrahedra.
+  @param[in] participating_vertices1
+     Each contact polygon in `contact_mesh_W` is completely contained within
+     one tetrahedron of the second deformable mesh. `participating_vertices1`
+     contains the indices of vertices incident to all such tetrahedra.
+  @param[in] contact_mesh_W
+     The contact surface mesh expressed in the world frame. The normals of the
+     mesh point out of the second geometry and into the first geometry.
+  @param[in] signed_distances
+     _Approximate_ signed distances sampled at the contact point defined as
+     the centroid of each polygon in `contact_mesh_W`. The two deformable
+     geometries give the same signed distance. These values are non-positive.
+     Note that there is one signed distance value per contact point and
+     the i-th signed distance corresponds to the i-th element in the contact
+     mesh.
+  @param[in] contact_vertex_indices0
+     Vector of four vertex indices of the tetrahedra in the mesh of the
+     first deformable geometry containing each contact point with
+     the same index semantics as `signed_distances`.
+  @param[in] contact_vertex_indices1
+     Vector of four vertex indices of the tetrahedra in the mesh of the
+     second deformable geometry containing each contact point with
+     the same index semantics as `signed_distances`.
+  @param[in] barycentric_coordinates0
+     Barycentric coordinates of centroids of contact polygons with respect to
+     their containing tetrahedra in the mesh of the first deformable geometry
+     with the same index semantics as `signed_distances`.
+  @param[in] barycentric_coordinates1
+     Barycentric coordinates of centroids of contact polygons with respect to
+     their containing tetrahedra in the mesh of the second deformable geometry
+     with the same index semantics as `signed_distances`.
+  @pre Deformable geometries with the given `id0` and `id1` have been
+     registered via `RegisterDeformableGeometry()`.
+  @pre contact_mesh_W.num_faces() == signed_distances.size().
+  @pre contact_mesh_W.num_faces() == contact_vertex_indices0.size().
+  @pre contact_mesh_W.num_faces() == contact_vertex_indices1.size().
+  @pre contact_mesh_W.num_faces() == barycentric_coordinates0.size().
+  @pre contact_mesh_W.num_faces() == barycentric_coordinates1.size(). */
+  void AddDeformableDeformableContactSurface(
+      GeometryId id0, GeometryId id1,
+      const std::unordered_set<int>& participating_vertices0,
+      const std::unordered_set<int>& participating_vertices1,
+      PolygonSurfaceMesh<T> contact_mesh_W, std::vector<T> signed_distances,
+      std::vector<Vector4<int>> contact_vertex_indices0,
+      std::vector<Vector4<int>> contact_vertex_indices1,
+      std::vector<Vector4<T>> barycentric_coordinates0,
+      std::vector<Vector4<T>> barycentric_coordinates1);
+
   /* Registers a deformable geometry with the given `id` as having the given
    number of vertices. This is a prerequisite of adding any contact
    information about this deformable geometry. */
   void RegisterDeformableGeometry(GeometryId id, int num_vertices) {
     contact_participations_.emplace(id, ContactParticipation(num_vertices));
   }
+
+  /* Returns true iff a geometry with the given `id` has been registered. */
+  bool IsRegistered(GeometryId id) const {
+    return contact_participations_.count(id) > 0;
+  }
+
+  /* Returns the number of vertices in the geometry with the given `id`.
+   @throws std::exception if the geometry with the given `id` hasn't been
+   registered via RegisterDeformableGeometry(). */
+  int GetNumVerticesOrThrow(GeometryId id) const {
+    DRAKE_THROW_UNLESS(IsRegistered(id));
+    return contact_participations_.at(id).num_vertices();
+  }
+
+  /* For the deformable geometry with the given `id`, add the given `vertices`
+   to the set of vertices that participate in contract/constraint.
+   @throws std::exception if a geometry with the given `id` hasn't been
+   registered via RegisterDeformableGeometry().
+   @pre All values in the given `vertices` are in [0, GetNumVerticesOrThrow(id)]
+  */
+  void Participate(GeometryId id, const std::unordered_set<int>& vertices);
 
  private:
   std::unordered_map<GeometryId, ContactParticipation> contact_participations_;

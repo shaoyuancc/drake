@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/test_utilities/expect_throws_message.h"
+#include "drake/multibody/plant/multibody_plant.h"
 #include "drake/systems/framework/diagram_builder.h"
 
 namespace drake {
@@ -10,12 +11,14 @@ namespace multibody {
 namespace internal {
 namespace {
 
+using Eigen::Vector3d;
 using geometry::GeometryInstance;
 using geometry::SceneGraph;
 using geometry::SceneGraphInspector;
 using geometry::Sphere;
 using math::RigidTransformd;
 using std::make_unique;
+using systems::BasicVector;
 
 class DeformableModelTest : public ::testing::Test {
  protected:
@@ -34,9 +37,11 @@ class DeformableModelTest : public ::testing::Test {
   MultibodyPlant<double>* plant_{nullptr};
   SceneGraph<double>* scene_graph_{nullptr};
 
-  DeformableBodyId RegisterSphere(double resolution_hint) {
-    auto geometry = make_unique<GeometryInstance>(
-        RigidTransformd(), make_unique<Sphere>(1), "sphere");
+  /* Registers a deformable sphere with the given initial pose in world. */
+  DeformableBodyId RegisterSphere(double resolution_hint,
+                                  RigidTransformd X_WS = RigidTransformd()) {
+    auto geometry =
+        make_unique<GeometryInstance>(X_WS, make_unique<Sphere>(1), "sphere");
     DeformableBodyId body_id = deformable_model_ptr_->RegisterDeformableBody(
         std::move(geometry), default_body_config_, resolution_hint);
     return body_id;
@@ -255,6 +260,166 @@ TEST_F(DeformableModelTest, VertexPositionsOutputPort) {
    this case should be the reference positions. */
   EXPECT_EQ(configurations.value(geometry_id),
             deformable_model_ptr_->GetReferencePositions(body_id));
+}
+
+TEST_F(DeformableModelTest, AddFixedConstraint) {
+  RigidTransformd X_WA(math::RollPitchYawd(1, 2, 3),
+                       Vector3d(1.23, 4.56, 7.89));
+  /* Register a deformable sphere with radius 1.0 and a large resolution hint so
+   that it is discretized as an octahedron. Give it an arbitrary initial pose.
+  */
+  DeformableBodyId deformable_id = RegisterSphere(100, X_WA);
+  ASSERT_EQ(deformable_model_ptr_->GetFemModel(deformable_id).num_nodes(), 7);
+  const Body<double>& rigid_body =
+      plant_->AddRigidBody("box", SpatialInertia<double>());
+  geometry::Box box(1.0, 1.0, 1.0);
+  const RigidTransformd X_BA(Vector3d(-2, 0, 0));
+  const RigidTransformd X_BG(Vector3d(-1, 0, 0));
+  const MultibodyConstraintId constraint_id =
+      deformable_model_ptr_->AddFixedConstraint(deformable_id, rigid_body, X_BA,
+                                                box, X_BG);
+
+  EXPECT_TRUE(deformable_model_ptr_->HasConstraint(deformable_id));
+  EXPECT_EQ(deformable_model_ptr_->fixed_constraint_ids(deformable_id).size(),
+            1);
+  const DeformableRigidFixedConstraintSpec& spec =
+      deformable_model_ptr_->fixed_constraint_spec(constraint_id);
+  EXPECT_EQ(spec.body_A, deformable_id);
+  EXPECT_EQ(spec.body_B, rigid_body.index());
+  /* Only the right-most deformable body vertex (with world position (1, 0, 0))
+   is under constraint. */
+  ASSERT_EQ(spec.vertices.size(), 1);
+  const int vertex_index = spec.vertices[0];
+  const Vector3d p_WPi =
+      deformable_model_ptr_->GetReferencePositions(deformable_id)
+          .segment<3>(3 * vertex_index);
+  const Vector3d p_APi(1, 0, 0);
+  EXPECT_EQ(p_WPi, X_WA * p_APi);
+  /* Qi should be coincident with Pi. */
+  ASSERT_EQ(spec.p_BQs.size(), 1);
+  const Vector3d p_BQi = spec.p_BQs[0];
+  EXPECT_EQ(X_BA * p_APi, p_BQi);
+
+  /* Throw conditions */
+  /* Non-existant deformable body. */
+  DeformableBodyId fake_deformable_id = DeformableBodyId::get_new_id();
+  EXPECT_THROW(deformable_model_ptr_->AddFixedConstraint(
+                   fake_deformable_id, rigid_body, X_BA, box, X_BG),
+               std::exception);
+  /* Non-existant rigid body (registered with a different MbP). */
+  MultibodyPlant<double> other_plant(0.0);
+  const Body<double>& wrong_rigid_body =
+      other_plant.AddRigidBody("wrong body", SpatialInertia<double>());
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      deformable_model_ptr_->AddFixedConstraint(deformable_id, wrong_rigid_body,
+                                                X_BA, box, X_BG),
+      ".*rigid body.*not registered.*");
+  /* Unsupported shape. */
+  const geometry::Mesh mesh("fake_mesh.vtk");
+  EXPECT_THROW(deformable_model_ptr_->AddFixedConstraint(
+                   deformable_id, rigid_body, X_BA, mesh, X_BG),
+               std::exception);
+  /* No constraint is added . */
+  DRAKE_EXPECT_THROWS_MESSAGE(deformable_model_ptr_->AddFixedConstraint(
+                                  deformable_id, rigid_body, X_BA, box,
+                                  RigidTransformd(Vector3d(100, 100, 100))),
+                              "No constraint has been added.*box.*");
+  /* Adding constraint after finalize. */
+  plant_->Finalize();
+  EXPECT_THROW(deformable_model_ptr_->AddFixedConstraint(
+                   deformable_id, rigid_body, X_BA, box, X_BG),
+               std::exception);
+}
+
+TEST_F(DeformableModelTest, ExternalForces) {
+  /* A user defined force density field. */
+  class ConstantForceDensityField final : public ForceDensityField<double> {
+   public:
+    DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ConstantForceDensityField)
+
+    /* Constructs an force density field that has the functional form given by
+     input `field` which is then scaled by a scalar value via input port. */
+    explicit ConstantForceDensityField(
+        std::function<Vector3<double>(const Vector3<double>&)> field)
+        : field_(std::move(field)) {}
+
+    /* Gets the double-valued input port that determines whether the force field
+     is turned on or off. 0 for off and anything else for on.  */
+    const systems::InputPort<double>& get_input_port() const {
+      return parent_system_or_throw().get_input_port(scale_port_index_);
+    }
+
+   private:
+    Vector3<double> DoEvaluateAt(const systems::Context<double>& context,
+                                 const Vector3<double>& p_WQ) const final {
+      return get_input_port().Eval(context)(0) * field_(p_WQ);
+    };
+
+    std::unique_ptr<ForceDensityField<double>> DoClone() const final {
+      return std::make_unique<ConstantForceDensityField>(*this);
+    }
+
+    void DoDeclareInputPorts(multibody::MultibodyPlant<double>* plant) final {
+      scale_port_index_ = this->DeclareVectorInputPort(
+                                  plant, "on/off signal for the force field",
+                                  BasicVector<double>(1.0))
+                              .get_index();
+    }
+
+    std::function<Vector3<double>(const Vector3<double>&)> field_;
+    systems::InputPortIndex scale_port_index_;
+  };
+
+  auto force_field = [](const Vector3d& x) {
+    return 3.14 * x;
+  };
+  auto constant_force =
+      std::make_unique<ConstantForceDensityField>(force_field);
+  const ConstantForceDensityField* constant_force_ptr = constant_force.get();
+  deformable_model_ptr_->AddExternalForce(std::move(constant_force));
+  constexpr double kRezHint = 0.5;
+  DeformableBodyId body_id = RegisterSphere(kRezHint);
+  /* Pre-finalize calls to GetExternalForces are not allowed. */
+  DRAKE_EXPECT_THROWS_MESSAGE(deformable_model_ptr_->GetExternalForces(body_id),
+                              ".*before system resources.*declared.*");
+  /* We modify the gravity to deviate from the default to verify that it is
+   reflected in the external gravity applied to the deformable body. */
+  const Vector3d gravity_vector(0.0, 0.0, -10.0);
+  plant_->mutable_gravity_field().set_gravity_vector(gravity_vector);
+  plant_->Finalize();
+  auto plant_context = plant_->CreateDefaultContext();
+
+  /* Post-finalize calls to AddExternalForce are not allowed. */
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      deformable_model_ptr_->AddExternalForce(
+          std::make_unique<ConstantForceDensityField>(force_field)),
+      ".*AddExternalForce.*after system resources have been declared.*");
+
+  DeformableBodyId fake_id = DeformableBodyId::get_new_id();
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      deformable_model_ptr_->GetExternalForces(fake_id),
+      fmt::format(".*No.*id.*{}.*registered.*", fake_id));
+
+  const std::vector<const ForceDensityField<double>*>& external_forces =
+      deformable_model_ptr_->GetExternalForces(body_id);
+  for (const auto* force : external_forces) {
+    const auto* g = dynamic_cast<const GravityForceField<double>*>(force);
+    const auto* f = dynamic_cast<const ConstantForceDensityField*>(force);
+    /* We know two external forces are added to the deformable body, one is
+     gravity (added automatically), the other is the explicit force defined
+     above. */
+    ASSERT_TRUE((g != nullptr) ^ (f != nullptr));
+    const Vector3d p_WQ(1, 2, 3);
+    if (g != nullptr) {
+      EXPECT_EQ(force->EvaluateAt(*plant_context, p_WQ),
+                gravity_vector * default_body_config_.mass_density());
+    } else {
+      const double scale = 2.71;
+      constant_force_ptr->get_input_port().FixValue(plant_context.get(),
+                                                    Vector1d(scale));
+      EXPECT_EQ(force->EvaluateAt(*plant_context, p_WQ), scale * 3.14 * p_WQ);
+    }
+  }
 }
 
 }  // namespace

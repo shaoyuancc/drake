@@ -2,8 +2,10 @@ import pydrake.geometry as mut
 
 import copy
 import unittest
+import urllib.request
 
 import numpy as np
+import umsgpack
 
 from drake import lcmt_viewer_load_robot, lcmt_viewer_draw
 from pydrake.autodiffutils import AutoDiffXd
@@ -173,9 +175,14 @@ class TestGeometryVisualizers(unittest.TestCase):
         meshcat.SetCameraTarget(target_in_world=[1, 2, 3])
         meshcat.SetCameraPose(camera_in_world=[3, 4, 5],
                               target_in_world=[1, 1, 1])
-        meshcat.AddButton(name="button", keycode="KeyB")
-        self.assertEqual(meshcat.GetButtonClicks(name="button"), 0)
-        meshcat.DeleteButton(name="button")
+        meshcat.AddButton(name="alice", keycode="KeyB")
+        self.assertEqual(meshcat.GetButtonClicks(name="alice"), 0)
+        meshcat._InjectWebsocketMessage(message=umsgpack.packb({
+            "type": "button",
+            "name": "alice",
+        }))
+        self.assertEqual(meshcat.GetButtonClicks(name="alice"), 1)
+        meshcat.DeleteButton(name="alice")
         meshcat.AddSlider(name="slider",
                           min=0,
                           max=1,
@@ -340,6 +347,13 @@ class TestGeometryVisualizers(unittest.TestCase):
 
     def test_start_meshcat(self):
         # StartMeshcat only performs interesting work on cloud notebook hosts.
-        # Here we simply ensure that it runs.
+        # Here we simply ensure that it runs and is available.
         meshcat = mut.StartMeshcat()
         self.assertIsInstance(meshcat, mut.Meshcat)
+        with urllib.request.urlopen(meshcat.web_url()) as response:
+            content_type = response.getheader("Content-Type")
+            some_data = response.read(4096)
+        # This also serves as a regresion test of the C++ code, where parsing
+        # the Content-Type is difficult within its unit test infrastructure.
+        self.assertIn("text/html", content_type)
+        self.assertIn("DOCTYPE html", some_data.decode("utf-8"))
