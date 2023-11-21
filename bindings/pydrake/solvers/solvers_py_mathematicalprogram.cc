@@ -746,6 +746,12 @@ void BindMathematicalProgram(py::module m) {
           },
           py::arg("obj"), py::arg("vars"),
           doc.MathematicalProgram.AddCost.doc_2args_obj_vars)
+      // Shao Yuan added
+      .def("AddCost",
+          [](MathematicalProgram* self, const Binding<Cost>& binding) {
+                return self->AddCost(binding);
+          },
+          py::arg("binding"), doc.MathematicalProgram.AddCost.doc_1args_binding)
       .def("AddLinearCost",
           static_cast<Binding<LinearCost> (MathematicalProgram::*)(
               const Expression&)>(&MathematicalProgram::AddLinearCost),
@@ -880,6 +886,12 @@ void BindMathematicalProgram(py::module m) {
           },
           py::arg("formulas"),
           doc.MathematicalProgram.AddConstraint.doc_1args_constEigenDenseBase)
+      // Shao Yuan added
+      .def("AddConstraint",
+          [](MathematicalProgram* self, const Binding<Constraint>& binding) {
+                return self->AddConstraint(binding);
+          },
+          py::arg("binding"), doc.MathematicalProgram.AddConstraint.doc_1args_binding)
       .def("AddLinearConstraint",
           static_cast<Binding<LinearConstraint> (MathematicalProgram::*)(
               const Eigen::Ref<const Eigen::MatrixXd>&,
