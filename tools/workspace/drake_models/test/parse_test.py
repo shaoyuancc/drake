@@ -60,6 +60,7 @@ class TestDrakeModels(unittest.TestCase):
             # TODO(#19992) for tracking these warnings.
             "package://drake_models/atlas/atlas_convex_hull.urdf",
             "package://drake_models/atlas/atlas_minimal_contact.urdf",
+            "package://drake_models/atlas/robotiq.urdf",
             "package://drake_models/atlas/robotiq_simple.urdf",
         ]
         self.assertFalse(set(models_with_warnings) - set(all_models))
@@ -67,8 +68,10 @@ class TestDrakeModels(unittest.TestCase):
         # Allow errors on these models until they are repaired.
         models_with_errors = [
             # TODO(#19992) for tracking these errors.
-            "package://drake_models/atlas/robotiq.urdf",
             "package://drake_models/atlas/robotiq_tendons.urdf",
+            # This file is not designed to be loaded independently from its
+            # parent file `homecart.dmd.yaml`; it will always error out.
+            "package://drake_models/tri_homecart/homecart_grippers.dmd.yaml",
         ]
         self.assertFalse(set(models_with_errors) - set(all_models))
         self.assertFalse(set(models_with_warnings) & set(models_with_errors))

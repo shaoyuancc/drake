@@ -277,16 +277,18 @@ InputPortIndex DiagramBuilder<T>::DeclareInput(
   // Save bookkeeping data.
   const auto return_id = InputPortIndex(diagram_input_data_.size());
   diagram_input_indices_[port_name] = return_id;
-  diagram_input_data_.push_back({id, port_name});
+  diagram_input_data_.push_back({id, std::move(port_name)});
   return return_id;
 }
 
 template <typename T>
 void DiagramBuilder<T>::ConnectInput(
-    const std::string& diagram_port_name, const InputPort<T>& input) {
+    std::string_view diagram_port_name, const InputPort<T>& input) {
   ThrowIfAlreadyBuilt();
   DRAKE_THROW_UNLESS(diagram_input_indices_.count(diagram_port_name));
-  ConnectInput(diagram_input_indices_[diagram_port_name], input);
+  const InputPortIndex diagram_port_index =
+      diagram_input_indices_.find(diagram_port_name)->second;
+  ConnectInput(diagram_port_index, input);
 }
 
 template <typename T>
@@ -446,7 +448,12 @@ void DiagramBuilder<T>::ThrowIfInputAlreadyWired(
     const InputPortLocator& id) const {
   if (connection_map_.find(id) != connection_map_.end() ||
       diagram_input_set_.find(id) != diagram_input_set_.end()) {
-    throw std::logic_error("Input port is already wired.");
+    // Extract the name of the input port.
+    auto iter = std::find(input_port_ids_.begin(), input_port_ids_.end(), id);
+    DRAKE_DEMAND(iter != input_port_ids_.end());  // it should always be found.
+    int index = std::distance(input_port_ids_.begin(), iter);
+    throw std::logic_error(fmt::format("Input port {} is already connected.",
+                                       input_port_names_[index]));
   }
 }
 

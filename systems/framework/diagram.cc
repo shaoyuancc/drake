@@ -3,8 +3,10 @@
 #include <limits>
 #include <set>
 #include <stdexcept>
+#include <unordered_set>
 
 #include "drake/common/drake_assert.h"
+#include "drake/common/string_unordered_set.h"
 #include "drake/common/text_logging.h"
 #include "drake/systems/framework/abstract_value_cloner.h"
 #include "drake/systems/framework/subvector.h"
@@ -608,36 +610,6 @@ template <typename T>
 std::vector<std::string> Diagram<T>::GetGraphvizPortLabels(bool input) const {
   return internal::DiagramSystemBaseAttorney::GetGraphvizPortLabels(*this,
                                                                     input);
-}
-
-// Remove this deprecated function on 2024-01-01.
-template <typename T>
-void Diagram<T>::GetGraphvizInputPortToken(const InputPort<T>& port,
-                                           int max_depth,
-                                           std::stringstream* dot) const {
-  DRAKE_DEMAND(&port.get_system() == this);
-  *dot << fmt::format("s{}{}:u{}", this->get_system_id().get_value(),
-                      (max_depth > 0) ? "in" : 0, port.get_index());
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  // Call the base class to trigger the console log warning.
-  System<T>::GetGraphvizInputPortToken(port, max_depth, dot);
-#pragma GCC diagnostic pop
-}
-
-// Remove this deprecated function on 2024-01-01.
-template <typename T>
-void Diagram<T>::GetGraphvizOutputPortToken(const OutputPort<T>& port,
-                                            int max_depth,
-                                            std::stringstream* dot) const {
-  DRAKE_DEMAND(&port.get_system() == this);
-  *dot << fmt::format("s{}{}:u{}", this->get_system_id().get_value(),
-                      (max_depth > 0) ? "out" : 0, port.get_index());
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  // Call the base class to trigger the console log warning.
-  System<T>::GetGraphvizOutputPortToken(port, max_depth, dot);
-#pragma GCC diagnostic pop
 }
 
 template <typename T>
@@ -1752,7 +1724,7 @@ bool Diagram<T>::PortsAreValid() const {
 
 template <typename T>
 bool Diagram<T>::NamesAreUniqueAndNonEmpty() const {
-  std::set<std::string> names;
+  string_unordered_set names;
   for (const auto& system : registered_systems_) {
     const std::string& name = system->get_name();
     if (name.empty()) {

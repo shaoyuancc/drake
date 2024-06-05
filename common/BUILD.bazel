@@ -44,6 +44,7 @@ drake_cc_package_library(
         ":name_value",
         ":network_policy",
         ":nice_type_name",
+        ":overloaded",
         ":parallelism",
         ":pointer_cast",
         ":polynomial",
@@ -52,7 +53,9 @@ drake_cc_package_library(
         ":reset_on_copy",
         ":scope_exit",
         ":scoped_singleton",
+        ":sha256",
         ":sorted_pair",
+        ":string_container",
         ":temp_directory",
         ":timer",
         ":type_safe_index",
@@ -397,6 +400,11 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "overloaded",
+    hdrs = ["overloaded.h"],
+)
+
+drake_cc_library(
     name = "parallelism",
     srcs = ["parallelism.cc"],
     hdrs = ["parallelism.h"],
@@ -438,6 +446,18 @@ drake_cc_library(
 drake_cc_library(
     name = "reset_on_copy",
     hdrs = ["reset_on_copy.h"],
+)
+
+drake_cc_library(
+    name = "sha256",
+    srcs = ["sha256.cc"],
+    hdrs = ["sha256.h"],
+    interface_deps = [
+        ":essential",
+    ],
+    deps = [
+        "@picosha2_internal//:picosha2",
+    ],
 )
 
 drake_cc_library(
@@ -510,6 +530,17 @@ drake_cc_library(
     hdrs = ["scoped_singleton.h"],
     deps = [
         ":essential",
+    ],
+)
+
+drake_cc_library(
+    name = "string_container",
+    hdrs = [
+        "string_hash.h",
+        "string_map.h",
+        "string_set.h",
+        "string_unordered_map.h",
+        "string_unordered_set.h",
     ],
 )
 
@@ -672,6 +703,14 @@ drake_cc_googletest(
     name = "reset_on_copy_test",
     deps = [
         ":reset_on_copy",
+    ],
+)
+
+drake_cc_googletest(
+    name = "sha256_test",
+    deps = [
+        ":sha256",
+        ":temp_directory",
     ],
 )
 
@@ -892,6 +931,7 @@ drake_cc_googletest(
         ":drake_path",
         ":find_resource",
         "//common/test_utilities:expect_no_throw",
+        "//common/test_utilities:expect_throws_message",
     ],
 )
 
@@ -1022,6 +1062,13 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "overloaded_test",
+    deps = [
+        "//common:overloaded",
+    ],
+)
+
+drake_cc_googletest(
     name = "parallelism_test",
     num_threads = 2,
     deps = [
@@ -1036,6 +1083,14 @@ drake_cc_googletest(
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_no_throw",
         "//common/test_utilities:random_polynomial_matrix",
+    ],
+)
+
+drake_cc_googletest(
+    name = "string_container_test",
+    deps = [
+        ":string_container",
+        "//common/test_utilities:limit_malloc",
     ],
 )
 

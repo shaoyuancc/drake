@@ -48,7 +48,6 @@ drake_cc_package_library(
         ":system",
         ":system_base",
         ":system_constraint",
-        ":system_html",
         ":system_output",
         ":system_scalar_converter",
         ":system_symbolic_inspector",
@@ -358,15 +357,6 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "system_html",
-    srcs = ["system_html.cc"],
-    hdrs = ["system_html.h"],
-    deps = [
-        ":system",
-    ],
-)
-
-drake_cc_library(
     name = "context",
     srcs = ["context.cc"],
     hdrs = ["context.h"],
@@ -631,6 +621,7 @@ drake_cc_library(
     deps = [
         ":abstract_value_cloner",
         "//common:pointer_cast",
+        "//common:string_container",
     ],
 )
 
@@ -642,6 +633,7 @@ drake_cc_library(
         ":diagram",
         "//common:default_scalars",
         "//common:essential",
+        "//common:string_container",
     ],
     deps = [
         "//common:pointer_cast",
@@ -859,15 +851,6 @@ drake_cc_googletest(
     name = "event_test",
     deps = [
         ":event_collection",
-    ],
-)
-
-drake_cc_googletest(
-    name = "event_deprecated_test",
-    copts = ["-Wno-deprecated-declarations"],
-    deps = [
-        ":event_collection",
-        "//systems/primitives:pass_through",
     ],
 )
 
