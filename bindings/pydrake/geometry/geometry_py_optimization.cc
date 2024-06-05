@@ -189,6 +189,11 @@ void DefineGeometryOptimization(py::module m) {
             cls_doc.ctor.doc_2args_basis_translation)
         .def(py::init<const ConvexSet&, double>(), py::arg("set"),
             py::arg("tol") = 1E-12, cls_doc.ctor.doc_2args_set_tol)
+        .def(py::init<const ConvexSet&, const solvers::SolverId&, double>(), py::arg("set"),
+            py::arg("solver_id"),
+            py::arg("tol") = 1E-12
+            //, cls_doc.ctor.doc_2args_set_tol
+            )
         .def("basis", &AffineSubspace::basis, py_rvp::reference_internal,
             cls_doc.basis.doc)
         .def("translation", &AffineSubspace::translation,
