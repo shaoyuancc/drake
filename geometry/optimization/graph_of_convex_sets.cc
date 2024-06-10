@@ -1618,7 +1618,7 @@ std::pair<
     MathematicalProgramResult,
     std::vector<std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>>
 GraphOfConvexSets::SolveConvexRestrictions(
-    const std::vector<const std::vector<const Edge*>>& active_edges,
+    const std::vector<std::vector<const Edge*>>& active_edges,
     const GraphOfConvexSetsOptions& options) const {
   // Use the restriction solver and options if they are provided.
   GraphOfConvexSetsOptions restriction_options = options;

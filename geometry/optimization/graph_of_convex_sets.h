@@ -648,7 +648,7 @@ class GraphOfConvexSets {
             std::vector<
                 std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>>
   SolveConvexRestrictions(
-      const std::vector<const std::vector<const Edge*>>& active_edges,
+      const std::vector<std::vector<const Edge*>>& active_edges,
       const GraphOfConvexSetsOptions& options =
           GraphOfConvexSetsOptions()) const;
 
