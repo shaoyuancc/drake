@@ -4,6 +4,7 @@
 
 #include "drake/geometry/optimization/graph_of_convex_sets.h"
 
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -1611,6 +1612,154 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
   result.set_x_val(x_val);
 
   return result;
+}
+
+std::pair<
+    MathematicalProgramResult,
+    std::vector<std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>>
+GraphOfConvexSets::SolveConvexRestrictions(
+    const std::vector<const std::vector<const Edge*>>& active_edges,
+    const GraphOfConvexSetsOptions& options) const {
+  // Use the restriction solver and options if they are provided.
+  GraphOfConvexSetsOptions restriction_options = options;
+  if (restriction_options.restriction_solver) {
+    restriction_options.solver = restriction_options.restriction_solver;
+  }
+  if (restriction_options.restriction_solver_options) {
+    restriction_options.solver_options =
+        *restriction_options.restriction_solver_options;
+  }
+  MathematicalProgram prog;
+  std::vector<int> num_vars_per_path;
+  std::vector<VectorXDecisionVariable> original_vars_for_each_path;
+
+  // Build one big convex program, which the solver might be able to parallelize
+  for (const auto& edge_list : active_edges) {
+    std::set<const Vertex*, VertexIdComparator> vertices;
+
+    for (const auto* e : edge_list) {
+      if (!edges_.contains(e->id())) {
+        throw std::runtime_error(
+            fmt::format("Edge {} is not in the graph.", e->name()));
+      }
+      vertices.emplace(&e->u());
+      vertices.emplace(&e->v());
+    }
+
+    MathematicalProgram temp_prog;  // Only used to look up variables
+    int num_vars_for_path = 0;
+
+    for (const auto* v : vertices) {
+      if (v->set().ambient_dimension() == 0) {
+        continue;
+      }
+      temp_prog.AddDecisionVariables(v->x());
+
+      // Create new decision variables
+      auto new_vars = prog.NewContinuousVariables(v->x().size(), v->name());
+      v->set().AddPointInSetConstraints(&prog, new_vars);
+
+      num_vars_for_path += new_vars.size();
+    }
+    num_vars_per_path.push_back(num_vars_for_path);
+    original_vars_for_each_path.push_back(temp_prog.decision_variables());
+
+    for (const auto* v : vertices) {
+      // Vertex costs.
+      for (const Binding<Cost>& b : v->costs_) {
+        // Find the corresponding new variables
+        auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+        VectorXDecisionVariable new_vars(indices.size());
+        for (size_t i = 0; i < indices.size(); ++i) {
+          new_vars[i] = prog.decision_variables()(indices[i]);
+        }
+
+        // Adjust the binding to use the new variables
+        prog.AddCost(b.evaluator(), new_vars);
+      }
+      // Vertex constraints.
+      for (const auto& [b, transcriptions] : v->constraints_) {
+        if (transcriptions.contains(Transcription::kRestriction)) {
+          // Find the corresponding new variables
+          auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+          VectorXDecisionVariable new_vars(indices.size());
+          for (size_t i = 0; i < indices.size(); ++i) {
+            new_vars[i] = prog.decision_variables()(indices[i]);
+          }
+          prog.AddConstraint(b.evaluator(), new_vars);
+        }
+      }
+    }
+
+    for (const auto* e : edge_list) {
+      // Edge costs.
+      for (const Binding<Cost>& b : e->costs_) {
+        auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+        VectorXDecisionVariable new_vars(indices.size());
+        for (size_t i = 0; i < indices.size(); ++i) {
+          new_vars[i] = prog.decision_variables()(indices[i]);
+        }
+
+        prog.AddCost(b.evaluator(), new_vars);
+      }
+      // Edge constraints.
+      for (const auto& [b, transcriptions] : e->constraints_) {
+        if (transcriptions.contains(Transcription::kRestriction)) {
+          auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+          VectorXDecisionVariable new_vars(indices.size());
+          for (size_t i = 0; i < indices.size(); ++i) {
+            new_vars[i] = prog.decision_variables()(indices[i]);
+          }
+
+          prog.AddConstraint(b.evaluator(), new_vars);
+        }
+      }
+    }
+  }
+
+  RewriteForConvexSolver(&prog);
+  MathematicalProgramResult result = Solve(prog, restriction_options);
+
+  std::vector<VectorXDecisionVariable> new_decision_vars;
+  for (size_t i = 0; i < active_edges.size(); ++i) {
+    int start_idx = std::accumulate(num_vars_per_path.begin(),
+                                    num_vars_per_path.begin() + i, 0);
+
+    new_decision_vars.push_back(
+        prog.decision_variables().segment(start_idx, num_vars_per_path[i]));
+  }
+
+  std::vector<std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>
+      old_to_new_maps;
+  for (size_t i = 0; i < active_edges.size(); ++i) {
+    std::unordered_map<symbolic::Variable::Id, symbolic::Variable>
+        old_to_new_map;
+
+    for (int j = 0; j < new_decision_vars[i].size(); ++j) {
+      old_to_new_map.emplace(original_vars_for_each_path[i][j].get_id(),
+                             new_decision_vars[i][j]);
+    }
+    old_to_new_maps.push_back(old_to_new_map);
+  }
+
+  // // Use the original decision variables in the results we return
+  // std::vector<MathematicalProgramResult> results;
+  //
+  // for (size_t i = 0; i < active_edges.size(); ++i) {
+  //   MathematicalProgramResult result_copy(result);
+  //   auto x_val = result.GetSolution(new_decision_vars[i]);
+  //   std::unordered_map<symbolic::Variable::Id, int> decision_variable_index;
+  //   for (int j = 0; j < new_decision_vars[i].size(); ++j) {
+  //     decision_variable_index.emplace(new_decision_vars[i][j].get_id(), j);
+  //   }
+  //
+  //   result_copy.set_decision_variable_index(decision_variable_index);
+  //   result_copy.set_x_val(x_val);
+  //
+  //   results.push_back(result_copy);
+  // }
+
+  return std::make_pair(result, old_to_new_maps);
 }
 
 }  // namespace optimization

@@ -495,7 +495,8 @@ class TestGeometryOptimization(unittest.TestCase):
         self.assertAlmostEqual(v_box.CalcVolume(), 8, 1E-10)
         v_unit_box = mut.VPolytope.MakeUnitBox(dim=3)
         self.assertTrue(v_unit_box.PointInSet([0, 0, 0]))
-        v_from_h = mut.VPolytope(H=mut.HPolyhedron.MakeUnitBox(dim=3))
+        v_from_h = mut.VPolytope(
+            H=mut.HPolyhedron.MakeUnitBox(dim=3), tol=1e-9)
         self.assertTrue(v_from_h.PointInSet([0, 0, 0]))
         # Test creating a vpolytope from a non-minimal set of vertices
         # 2D: Random points inside a circle
@@ -791,6 +792,10 @@ class TestGeometryOptimization(unittest.TestCase):
             MathematicalProgramResult)
         self.assertIsInstance(
             spp.SolveConvexRestriction(active_edges=[edge0, edge1],
+                                       options=options),
+            MathematicalProgramResult)
+        self.assertIsInstance(
+            spp.SolveConvexRestrictions(active_edges=[[edge0, edge1]],
                                        options=options),
             MathematicalProgramResult)
         self.assertEqual(
