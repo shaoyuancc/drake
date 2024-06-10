@@ -1633,7 +1633,6 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
 
   return result;
 }
-
 MathematicalProgramResult GraphOfConvexSets::SolveConvexRestrictions(
     const std::vector<const std::vector<const Edge*>>& active_edges,
     const GraphOfConvexSetsOptions& options) const {
@@ -1651,6 +1650,7 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestrictions(
   // Build one big convex program, which the solver might be able to parallelize
   for (const auto& edge_list : active_edges) {
     std::set<const Vertex*, VertexIdComparator> vertices;
+
     for (const auto* e : edge_list) {
       if (!edges_.contains(e->id())) {
         throw std::runtime_error(
@@ -1660,21 +1660,42 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestrictions(
       vertices.emplace(&e->v());
     }
 
+    MathematicalProgram temp_prog;  // Only used to look up variables
+
     for (const auto* v : vertices) {
       if (v->set().ambient_dimension() == 0) {
         continue;
       }
-      prog.AddDecisionVariables(v->x());
-      v->set().AddPointInSetConstraints(&prog, v->x());
+      temp_prog.AddDecisionVariables(v->x());
 
+      // Create new decision variables
+      auto new_vars = prog.NewContinuousVariables(v->x().size(), v->name());
+      v->set().AddPointInSetConstraints(&prog, new_vars);
+    }
+
+    for (const auto* v : vertices) {
       // Vertex costs.
       for (const Binding<Cost>& b : v->costs_) {
-        prog.AddCost(b);
+        // Find the corresponding new variables
+        auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+        VectorXDecisionVariable new_vars(indices.size());
+        for (size_t i = 0; i < indices.size(); ++i) {
+          new_vars[i] = prog.decision_variables()(indices[i]);
+        }
+
+        // Adjust the binding to use the new variables
+        prog.AddCost(b.evaluator(), new_vars);
       }
       // Vertex constraints.
       for (const auto& [b, transcriptions] : v->constraints_) {
         if (transcriptions.contains(Transcription::kRestriction)) {
-          prog.AddConstraint(b);
+          // Find the corresponding new variables
+          auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+          VectorXDecisionVariable new_vars(indices.size());
+          for (size_t i = 0; i < indices.size(); ++i) {
+            new_vars[i] = prog.decision_variables()(indices[i]);
+          }
+          prog.AddConstraint(b.evaluator(), new_vars);
         }
       }
     }
@@ -1682,12 +1703,24 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestrictions(
     for (const auto* e : edge_list) {
       // Edge costs.
       for (const Binding<Cost>& b : e->costs_) {
-        prog.AddCost(b);
+        auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+        VectorXDecisionVariable new_vars(indices.size());
+        for (size_t i = 0; i < indices.size(); ++i) {
+          new_vars[i] = prog.decision_variables()(indices[i]);
+        }
+
+        prog.AddCost(b.evaluator(), new_vars);
       }
       // Edge constraints.
       for (const auto& [b, transcriptions] : e->constraints_) {
         if (transcriptions.contains(Transcription::kRestriction)) {
-          prog.AddConstraint(b);
+          auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+          VectorXDecisionVariable new_vars(indices.size());
+          for (size_t i = 0; i < indices.size(); ++i) {
+            new_vars[i] = prog.decision_variables()(indices[i]);
+          }
+
+          prog.AddConstraint(b.evaluator(), new_vars);
         }
       }
     }
