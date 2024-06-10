@@ -1613,6 +1613,71 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
   return result;
 }
 
+MathematicalProgramResult GraphOfConvexSets::SolveConvexRestrictions(
+    const std::vector<const std::vector<const Edge*>>& active_edges,
+    const GraphOfConvexSetsOptions& options) const {
+  // Use the restriction solver and options if they are provided.
+  GraphOfConvexSetsOptions restriction_options = options;
+  if (restriction_options.restriction_solver) {
+    restriction_options.solver = restriction_options.restriction_solver;
+  }
+  if (restriction_options.restriction_solver_options) {
+    restriction_options.solver_options =
+        *restriction_options.restriction_solver_options;
+  }
+  MathematicalProgram prog;
+
+  // Build one big convex program, which the solver might be able to parallelize
+  for (const auto& edge_list : active_edges) {
+    std::set<const Vertex*, VertexIdComparator> vertices;
+    for (const auto* e : edge_list) {
+      if (!edges_.contains(e->id())) {
+        throw std::runtime_error(
+            fmt::format("Edge {} is not in the graph.", e->name()));
+      }
+      vertices.emplace(&e->u());
+      vertices.emplace(&e->v());
+    }
+
+    for (const auto* v : vertices) {
+      if (v->set().ambient_dimension() == 0) {
+        continue;
+      }
+      prog.AddDecisionVariables(v->x());
+      v->set().AddPointInSetConstraints(&prog, v->x());
+
+      // Vertex costs.
+      for (const Binding<Cost>& b : v->costs_) {
+        prog.AddCost(b);
+      }
+      // Vertex constraints.
+      for (const auto& [b, transcriptions] : v->constraints_) {
+        if (transcriptions.contains(Transcription::kRestriction)) {
+          prog.AddConstraint(b);
+        }
+      }
+    }
+
+    for (const auto* e : edge_list) {
+      // Edge costs.
+      for (const Binding<Cost>& b : e->costs_) {
+        prog.AddCost(b);
+      }
+      // Edge constraints.
+      for (const auto& [b, transcriptions] : e->constraints_) {
+        if (transcriptions.contains(Transcription::kRestriction)) {
+          prog.AddConstraint(b);
+        }
+      }
+    }
+  }
+
+  RewriteForConvexSolver(&prog);
+  MathematicalProgramResult result = Solve(prog, restriction_options);
+
+  return result;
+}
+
 }  // namespace optimization
 }  // namespace geometry
 }  // namespace drake

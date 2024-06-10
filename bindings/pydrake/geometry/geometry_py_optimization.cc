@@ -895,6 +895,11 @@ void DefineGeometryOptimization(py::module m) {
         .def("SolveConvexRestriction",
             &GraphOfConvexSets::SolveConvexRestriction, py::arg("active_edges"),
             py::arg("options") = GraphOfConvexSetsOptions(),
+            cls_doc.SolveConvexRestriction.doc)
+        .def("SolveConvexRestrictions",
+            &GraphOfConvexSets::SolveConvexRestrictions,
+            py::arg("active_edges"),
+            py::arg("options") = GraphOfConvexSetsOptions(),
             cls_doc.SolveConvexRestriction.doc);
   }
   {
