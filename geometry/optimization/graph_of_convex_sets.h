@@ -657,7 +657,10 @@ class GraphOfConvexSets {
       const GraphOfConvexSetsOptions& options = GraphOfConvexSetsOptions(),
       const solvers::MathematicalProgramResult* initial_guess = nullptr) const;
 
-  solvers::MathematicalProgramResult SolveConvexRestrictions(
+  std::pair<solvers::MathematicalProgramResult,
+            std::vector<
+                std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>>
+  SolveConvexRestrictions(
       const std::vector<const std::vector<const Edge*>>& active_edges,
       const GraphOfConvexSetsOptions& options =
           GraphOfConvexSetsOptions()) const;
